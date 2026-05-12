@@ -1,0 +1,9 @@
+node_modules
+.DS_Store
+dist
+.env
+debug
+data/
+!data/example.docx
+!data/app/index.example.json
+!dist/cli/index.cjs

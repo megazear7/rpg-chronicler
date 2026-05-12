@@ -1,0 +1,83 @@
+html {
+  /* Colors */
+  --color-1: #e7502c;
+  --color-2: #89d154;
+
+  /* Primary surface colors */
+  --color-primary-surface: #2c2f33;
+  --color-primary-text: #e0e6ed;
+  --color-primary-text-muted: #999;
+  --color-primary-text-bold: #666;
+
+  /* Secondary surface colors */
+  --color-secondary-surface: #2c2f33;
+  --color-secondary-text: #e0e6ed;
+  --color-secondary-text-muted: #999;
+  --color-secondary-text-bold: #666;
+
+  /* Additional colors */
+  --color-accent: #39a7e8;
+  --color-error: #ff2121;
+  --color-danger: #ff311e;
+  --color-warning: #fdd848;
+  --color-success: rgb(56, 173, 56);
+
+  /* Sizes */
+  --size-8x: 300px;
+  --size-7x: 250px;
+  --size-6x: 200px;
+  --size-5x: 150px;
+  --size-4x: 100px;
+  --size-3x: 60px;
+  --size-2x: 48px;
+  --size-xl: 32px;
+  --size-large: 20px;
+  --size-medium: 12px;
+  --size-small: 8px;
+  --size-tiny: 4px;
+  --size-nano: 2px;
+
+  /* Fonts */
+  --font-xl: 28px;
+  --font-large: 22px;
+  --font-medium: 18px;
+  --font-small: 14px;
+  --font-tiny: 12px;
+  --line-height: 1.6;
+  --font-family: "Inter", sans-serif;
+
+  /* Borders */
+  --border-normal: 2px solid transparent;
+  --border-active: 2px solid var(--color-1);
+  --border-radius-medium: 12px;
+  --border-radius-large: 20px;
+
+  /* Shadows */
+  --shadow-normal: 0 4px 12px rgba(0, 0, 0, 0.1);
+  --shadow-active: 0 4px 12px rgba(0, 0, 0, 0.3);
+  --shadow-hover: 0 6px 20px rgba(0, 0, 0, 0.5);
+  --shadow-inverse-normal: 0 6px 20px rgba(255, 255, 255, 0.1);
+  --shadow-inverse-active: 0 6px 20px rgba(255, 255, 255, 0.3);
+  --shadow-inverse-hover: 0 6px 20px rgba(255, 255, 255, 0.5);
+
+  /* Times & Transitions */
+  --time-normal: 350ms;
+  --transition-all: all var(--time-normal) ease-in-out;
+  --transition-shadow: box-shadow var(--time-normal) ease-in-out;
+  --content-width: 1280px;
+  --transform-hover: translateY(-2px);
+
+  margin: 0;
+  padding: 0;
+  background-color: var(--color-primary-surface);
+}
+
+body {
+  background-color: var(--color-primary-surface);
+  color: var(--color-primary-text);
+  font-size: var(--font-medium);
+  font-family: var(--font-family);
+  line-height: var(--line-height);
+  margin: 0;
+  padding: 0 0 var(--size-xl) 0;
+}

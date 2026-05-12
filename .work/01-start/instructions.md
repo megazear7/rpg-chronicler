@@ -19,3 +19,8 @@ When you have processed all files, update the pull request with a description of
 
 ## Completed work
 01-process.md
+02-progress.md
+03-artifacts.md
+04-ui.md
+05-editing.md
+06-contentful.md

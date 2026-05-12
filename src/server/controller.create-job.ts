@@ -5,7 +5,7 @@ import multer from "multer";
 import { Router } from "express";
 import { createJobService } from "../shared/service.create-job.js";
 import { RouteError } from "./main.errors.js";
-import { createJob, getJobSourceDir, updateStage } from "./util.job-store.js";
+import { createJob, getJobSourceDir, readJob, updateStage } from "./util.job-store.js";
 import { startJobProcessing } from "./util.job-processing.js";
 
 const incomingDir = path.join(process.cwd(), "data", "jobs", "_incoming");
@@ -37,7 +37,7 @@ export async function registerCreateJob(router: Router): Promise<void> {
       await updateStage(job.id, "upload", "completed", 100, "Upload stored.");
 
       await startJobProcessing(job.id, originalPath);
-      res.json(job);
+      res.json(await readJob(job.id));
     } catch (error) {
       next(error);
     }

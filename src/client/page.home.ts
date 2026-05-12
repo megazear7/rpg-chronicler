@@ -7,6 +7,7 @@ import { JobIndex } from "../shared/type.job.js";
 import { dispatch } from "./util.events.js";
 import { SuccessEvent } from "./event.success.js";
 import { WarningEvent } from "./event.warning.js";
+import { NavigationEvent } from "./event.navigation.js";
 
 @customElement("rpg-chronicler-home-page")
 export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
@@ -152,6 +153,7 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
     try {
       this.latestJob = await createJobService.fetch({ file: this.selectedFile });
       dispatch(this, SuccessEvent("Job created and processing started."));
+      dispatch(this, NavigationEvent({ path: `/jobs/${this.latestJob.id}` }));
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to submit job.";
       dispatch(this, WarningEvent(message));

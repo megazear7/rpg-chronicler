@@ -2,6 +2,7 @@ import path from "path";
 import { promises as fs } from "fs";
 import { randomUUID } from "crypto";
 import {
+  ArtifactDetail,
   ArtifactKey,
   ArtifactSummary,
   ArtifactVersion,
@@ -288,6 +289,11 @@ export async function saveArtifactVersion(
   return version;
 }
 
+async function readArtifactVersion(jobId: string, key: ArtifactKey, versionId: string): Promise<ArtifactVersion> {
+  const content = await fs.readFile(path.join(getArtifactVersionsDir(jobId, key), `${versionId}.json`), "utf-8");
+  return ArtifactVersion.parse(JSON.parse(content));
+}
+
 export async function listArtifactVersions(jobId: string, key: ArtifactKey): Promise<ArtifactVersion[]> {
   const versionsDir = getArtifactVersionsDir(jobId, key);
   try {
@@ -302,6 +308,109 @@ export async function listArtifactVersions(jobId: string, key: ArtifactKey): Pro
   } catch {
     return [];
   }
+}
+
+async function syncArtifactSummary(jobId: string, key: ArtifactKey, versions: ArtifactVersion[]): Promise<void> {
+  const nonDeletedVersions = versions.filter((version) => !version.deletedAt);
+  const latestActiveVersion = nonDeletedVersions[0] ?? null;
+  await updateJob(jobId, (job) => {
+    const artifacts = job.artifacts.map((artifact) => {
+      if (artifact.key !== key) {
+        return artifact;
+      }
+      const generatedVersion = versions.find((version) => version.id === artifact.generatedVersionId && !version.deletedAt) ?? null;
+      return ArtifactSummary.parse({
+        ...artifact,
+        activeVersionId: latestActiveVersion?.id ?? null,
+        generatedVersionId: generatedVersion?.id ?? null,
+        versionCount: nonDeletedVersions.length,
+        updatedAt: latestActiveVersion?.createdAt ?? artifact.updatedAt,
+      });
+    });
+
+    const activeText = latestActiveVersion?.text ?? null;
+    const contentful = {
+      ...job.contentful,
+      title: key === "title" ? activeText : job.contentful.title,
+      summary: key === "summary" ? activeText : job.contentful.summary,
+      story: key === "story" ? activeText : job.contentful.story,
+      dmNotes: key === "dmNotes" ? activeText : job.contentful.dmNotes,
+    };
+
+    return JobIndex.parse({
+      ...job,
+      artifacts,
+      contentful,
+    });
+  });
+}
+
+export async function readArtifact(jobId: string, key: ArtifactKey): Promise<ArtifactDetail> {
+  const job = await readJob(jobId);
+  const summary = job.artifacts.find((artifact) => artifact.key === key);
+  if (!summary) {
+    throw new Error(`Artifact ${key} not found.`);
+  }
+  const versions = await listArtifactVersions(jobId, key);
+  const activeVersion = summary.activeVersionId ? versions.find((version) => version.id === summary.activeVersionId) ?? null : null;
+  return ArtifactDetail.parse({
+    ...summary,
+    activeVersion,
+    versions,
+  });
+}
+
+export async function editArtifact(jobId: string, key: ArtifactKey, text: string): Promise<ArtifactDetail> {
+  await saveArtifactVersion(jobId, key, text, "edited");
+  return readArtifact(jobId, key);
+}
+
+export async function activateArtifactVersion(jobId: string, key: ArtifactKey, versionId: string): Promise<ArtifactDetail> {
+  const version = await readArtifactVersion(jobId, key, versionId);
+  if (version.deletedAt) {
+    throw new Error("Cannot activate a deleted artifact version.");
+  }
+
+  await updateJob(jobId, (job) => {
+    const artifacts = job.artifacts.map((artifact) => {
+      if (artifact.key !== key) {
+        return artifact;
+      }
+      return ArtifactSummary.parse({
+        ...artifact,
+        activeVersionId: versionId,
+        updatedAt: now(),
+      });
+    });
+
+    const contentful = {
+      ...job.contentful,
+      title: key === "title" ? version.text : job.contentful.title,
+      summary: key === "summary" ? version.text : job.contentful.summary,
+      story: key === "story" ? version.text : job.contentful.story,
+      dmNotes: key === "dmNotes" ? version.text : job.contentful.dmNotes,
+    };
+
+    return JobIndex.parse({
+      ...job,
+      artifacts,
+      contentful,
+    });
+  });
+
+  return readArtifact(jobId, key);
+}
+
+export async function deleteArtifactVersion(jobId: string, key: ArtifactKey, versionId: string): Promise<ArtifactDetail> {
+  const version = await readArtifactVersion(jobId, key, versionId);
+  const deletedVersion = ArtifactVersion.parse({
+    ...version,
+    deletedAt: now(),
+  });
+  await fs.writeFile(path.join(getArtifactVersionsDir(jobId, key), `${versionId}.json`), JSON.stringify(deletedVersion, null, 2), "utf-8");
+  const versions = await listArtifactVersions(jobId, key);
+  await syncArtifactSummary(jobId, key, versions);
+  return readArtifact(jobId, key);
 }
 
 export async function readJobDetail(jobId: string): Promise<JobDetail> {

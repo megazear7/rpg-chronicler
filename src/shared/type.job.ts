@@ -57,6 +57,12 @@ export const ArtifactSummary = z.object({
 });
 export type ArtifactSummary = z.infer<typeof ArtifactSummary>;
 
+export const ArtifactDetail = ArtifactSummary.extend({
+  activeVersion: ArtifactVersion.nullable(),
+  versions: z.array(ArtifactVersion),
+});
+export type ArtifactDetail = z.infer<typeof ArtifactDetail>;
+
 export const JobStage = z.object({
   name: JobStageName,
   label: z.string(),

@@ -5,7 +5,7 @@ import { streamJobsService } from "../shared/service.stream-jobs.js";
 import { JobIndex, JobListResponse } from "../shared/type.job.js";
 import { globalStyles } from "./styles.global.js";
 import { RpgChroniclerAppProvider } from "./provider.app.js";
-import { leftArrowIcon, rightArrowIcon } from "./icons.js";
+import { detailsIcon, leftArrowIcon, rightArrowIcon } from "./icons.js";
 
 @customElement("rpg-chronicler-jobs-page")
 export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
@@ -17,6 +17,8 @@ export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
     css`
       main {
         padding: var(--size-large);
+        display: grid;
+        gap: var(--size-large);
       }
 
       .header {
@@ -35,12 +37,15 @@ export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
       }
 
       .job-card {
-        background: var(--color-secondary-surface);
-        border-radius: var(--radius-large);
+        background:
+          radial-gradient(circle at top right, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent 36%),
+          linear-gradient(180deg, color-mix(in srgb, var(--color-secondary-surface) 97%, white), var(--color-secondary-surface));
+        border-radius: 32px;
         padding: var(--size-large);
-        box-shadow: var(--shadow-passive);
+        box-shadow: var(--shadow-hover);
         display: grid;
         gap: var(--size-medium);
+        border: 1px solid color-mix(in srgb, var(--color-primary-text) 10%, transparent);
       }
 
       .status-row,
@@ -61,14 +66,42 @@ export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
 
       .progress-bar {
         height: 100%;
-        background: linear-gradient(90deg, var(--color-1), var(--color-2));
+        background: linear-gradient(90deg, color-mix(in srgb, var(--color-accent) 75%, white), var(--color-2));
       }
 
       .empty {
         margin-top: var(--size-large);
         padding: var(--size-large);
         background: var(--color-secondary-surface);
-        border-radius: var(--radius-large);
+        border-radius: 32px;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.32rem 0.8rem;
+        border-radius: 999px;
+        font-size: var(--font-small);
+      }
+
+      .status-pill.running {
+        background: color-mix(in srgb, var(--color-accent) 24%, transparent);
+        color: var(--color-accent);
+      }
+
+      .status-pill.completed {
+        background: color-mix(in srgb, var(--color-success) 22%, transparent);
+        color: var(--color-success);
+      }
+
+      .status-pill.failed {
+        background: color-mix(in srgb, var(--color-error) 22%, transparent);
+        color: #ff9797;
+      }
+
+      .status-pill.queued {
+        background: color-mix(in srgb, var(--color-warning) 20%, transparent);
+        color: var(--color-warning);
       }
     `,
   ];
@@ -111,12 +144,15 @@ export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
     return html`
       <article class="job-card">
         <div>
-          <div class="stage-row"><strong>${job.file}</strong><span>${job.status}</span></div>
+          <div class="stage-row"><strong>${job.file}</strong><span class=${`status-pill ${job.status}`}>${job.status}</span></div>
           <div class="status-row"><span>Current stage</span><span>${job.currentStage ?? "complete"}</span></div>
         </div>
         <div class="progress"><div class="progress-bar" style=${`width:${job.totalProgress}%`}></div></div>
         <div class="status-row"><span>Total progress</span><span>${job.totalProgress}%</span></div>
-        <a href=${`/jobs/${job.id}`}>Open job ${rightArrowIcon}</a>
+        <div class="status-row">
+          <a href=${`/jobs/${job.id}`}>Open job ${rightArrowIcon}</a>
+          <a href=${`/jobs/${job.id}/logs`}>Logs ${detailsIcon}</a>
+        </div>
       </article>
     `;
   }

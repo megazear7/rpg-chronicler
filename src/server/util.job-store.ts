@@ -1,6 +1,7 @@
 import path from "path";
 import { promises as fs } from "fs";
 import { randomUUID } from "crypto";
+import z from "zod";
 import {
   ArtifactDetail,
   ArtifactKey,
@@ -11,6 +12,8 @@ import {
   artifactOrder,
   JobContentful,
   JobDetail,
+  JobLogEntry,
+  JobLogLevel,
   JobIndex,
   JobListResponse,
   JobStage,
@@ -130,6 +133,10 @@ export function getJobIndexPath(jobId: string): string {
   return path.join(getJobDir(jobId), "index.json");
 }
 
+export function getJobLogsPath(jobId: string): string {
+  return path.join(getJobDir(jobId), "logs.json");
+}
+
 export function getJobSourceDir(jobId: string): string {
   return path.join(getJobDir(jobId), "source");
 }
@@ -172,7 +179,9 @@ export async function createJob(fileName: string): Promise<JobIndex> {
   await ensureDir(getJobSourceDir(id));
   await ensureDir(getJobProgressDir(id));
   await ensureDir(getJobArtifactsDir(id));
+  await fs.writeFile(getJobLogsPath(id), JSON.stringify([], null, 2), "utf-8");
   await writeJob(job);
+  await appendJobLog(id, "info", "upload", `Created job for ${fileName}.`);
   return job;
 }
 
@@ -201,7 +210,7 @@ export async function updateStage(
   progress: number,
   message?: string,
 ): Promise<JobIndex> {
-  return updateJob(jobId, (job) => {
+  const updatedJob = await updateJob(jobId, (job) => {
     const updatedStages = job.stages.map((stage) =>
       stage.name === name
         ? {
@@ -219,10 +228,22 @@ export async function updateStage(
       stages: updatedStages,
     });
   });
+
+  if (message) {
+    const level =
+      status === JobStageStatus.enum.failed
+        ? JobLogLevel.enum.error
+        : status === JobStageStatus.enum.completed
+          ? JobLogLevel.enum.success
+          : JobLogLevel.enum.info;
+    await appendJobLog(jobId, level, name, message);
+  }
+
+  return updatedJob;
 }
 
 export async function failJob(jobId: string, name: JobStageName, message: string): Promise<JobIndex> {
-  return updateJob(jobId, (job) => {
+  const failedJob = await updateJob(jobId, (job) => {
     const updatedStages = job.stages.map((stage) =>
       stage.name === name
         ? {
@@ -239,6 +260,36 @@ export async function failJob(jobId: string, name: JobStageName, message: string
       stages: updatedStages,
     });
   });
+  await appendJobLog(jobId, "error", name, message);
+  return failedJob;
+}
+
+export async function appendJobLog(
+  jobId: string,
+  level: JobLogLevel,
+  stage: JobStageName | null,
+  message: string,
+): Promise<JobLogEntry> {
+  const entry = JobLogEntry.parse({
+    id: randomUUID(),
+    createdAt: now(),
+    level,
+    stage,
+    message,
+  });
+  const logs = await readJobLogs(jobId);
+  logs.unshift(entry);
+  await fs.writeFile(getJobLogsPath(jobId), JSON.stringify(logs.slice(0, 500), null, 2), "utf-8");
+  return entry;
+}
+
+export async function readJobLogs(jobId: string): Promise<JobLogEntry[]> {
+  try {
+    const content = await fs.readFile(getJobLogsPath(jobId), "utf-8");
+    return z.array(JobLogEntry).parse(JSON.parse(content));
+  } catch {
+    return [];
+  }
 }
 
 export async function saveArtifactVersion(
@@ -285,6 +336,13 @@ export async function saveArtifactVersion(
       contentful,
     });
   });
+
+  await appendJobLog(
+    jobId,
+    source === "generated" ? "success" : "info",
+    null,
+    `${artifactLabels[key]} ${source === "generated" ? "generated" : "saved as a new edited version"}.`,
+  );
 
   return version;
 }
@@ -418,9 +476,11 @@ export async function readJobDetail(jobId: string): Promise<JobDetail> {
   const artifactVersions = Object.fromEntries(
     await Promise.all(artifactOrder.map(async (key) => [key, await listArtifactVersions(jobId, key)])),
   );
+  const logs = await readJobLogs(jobId);
   return JobDetail.parse({
     ...job,
     artifactVersions,
+    logs,
   });
 }
 

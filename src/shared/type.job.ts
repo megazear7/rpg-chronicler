@@ -73,6 +73,18 @@ export const JobStage = z.object({
 });
 export type JobStage = z.infer<typeof JobStage>;
 
+export const JobLogLevel = z.enum(["info", "success", "warning", "error"]);
+export type JobLogLevel = z.infer<typeof JobLogLevel>;
+
+export const JobLogEntry = z.object({
+  id: z.uuid(),
+  createdAt: z.string().datetime(),
+  level: JobLogLevel,
+  stage: JobStageName.nullable(),
+  message: z.string(),
+});
+export type JobLogEntry = z.infer<typeof JobLogEntry>;
+
 export const JobContentful = z.object({
   status: z.enum(["not_ready", "ready", "sending", "sent"]),
   title: z.string().nullable(),
@@ -102,6 +114,7 @@ export type JobIndex = z.infer<typeof JobIndex>;
 
 export const JobDetail = JobIndex.extend({
   artifactVersions: z.record(z.string(), z.array(ArtifactVersion)),
+  logs: z.array(JobLogEntry),
 });
 export type JobDetail = z.infer<typeof JobDetail>;
 

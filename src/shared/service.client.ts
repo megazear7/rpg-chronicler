@@ -17,6 +17,10 @@ export const routes = [
     path: "/jobs/:jobId",
   },
   {
+    name: RouteName.enum.job_logs,
+    path: "/jobs/:jobId/logs",
+  },
+  {
     name: RouteName.enum.example,
     path: "/example/:id",
   },

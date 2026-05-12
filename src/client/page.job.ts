@@ -12,7 +12,7 @@ import {
 } from "../shared/type.job.js";
 import { globalStyles } from "./styles.global.js";
 import { RpgChroniclerAppProvider } from "./provider.app.js";
-import { leftArrowIcon } from "./icons.js";
+import { detailsIcon, leftArrowIcon } from "./icons.js";
 import { updateArtifactService } from "../shared/service.update-artifact.js";
 import { activateArtifactVersionService } from "../shared/service.activate-artifact-version.js";
 import { deleteArtifactVersionService } from "../shared/service.delete-artifact-version.js";
@@ -39,10 +39,13 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
 
       .hero,
       .panel {
-        background: var(--color-secondary-surface);
-        border-radius: var(--radius-large);
+        background:
+          radial-gradient(circle at top right, color-mix(in srgb, var(--color-accent) 14%, transparent), transparent 36%),
+          linear-gradient(180deg, color-mix(in srgb, var(--color-secondary-surface) 97%, white), var(--color-secondary-surface));
+        border-radius: 32px;
         padding: var(--size-large);
-        box-shadow: var(--shadow-passive);
+        box-shadow: var(--shadow-hover);
+        border: 1px solid color-mix(in srgb, var(--color-primary-text) 10%, transparent);
       }
 
       .hero-grid,
@@ -60,11 +63,12 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
 
       .stage-card,
       .artifact-card {
-        background: color-mix(in srgb, var(--color-secondary-surface) 82%, black);
-        border-radius: var(--radius-medium);
+        background: color-mix(in srgb, var(--color-secondary-surface) 88%, black);
+        border-radius: 26px;
         padding: var(--size-medium);
         display: grid;
         gap: var(--size-medium);
+        box-shadow: var(--shadow-normal);
       }
 
       .artifact-actions,
@@ -89,12 +93,13 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
       }
 
       button {
-        border: none;
-        border-radius: var(--radius-medium);
+        border: 1px solid color-mix(in srgb, var(--color-primary-text) 12%, transparent);
+        border-radius: 999px;
         padding: var(--size-small) var(--size-medium);
         cursor: pointer;
-        background: linear-gradient(135deg, var(--color-1), var(--color-2));
+        background: color-mix(in srgb, var(--color-primary-background) 68%, transparent);
         color: var(--color-primary-text);
+        box-shadow: var(--shadow-normal);
       }
 
       .secondary {
@@ -133,6 +138,46 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         background: color-mix(in srgb, var(--color-primary-text) 10%, transparent);
       }
 
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        padding: 0.35rem 0.8rem;
+        border-radius: 999px;
+        font-size: var(--font-small);
+      }
+
+      .status-pill.running,
+      .stage-card.running .stage-status {
+        background: color-mix(in srgb, var(--color-accent) 24%, transparent);
+        color: var(--color-accent);
+      }
+
+      .status-pill.completed,
+      .stage-card.completed .stage-status {
+        background: color-mix(in srgb, var(--color-success) 22%, transparent);
+        color: var(--color-success);
+      }
+
+      .status-pill.failed,
+      .stage-card.failed .stage-status {
+        background: color-mix(in srgb, var(--color-error) 22%, transparent);
+        color: #ff9797;
+      }
+
+      .status-pill.queued,
+      .stage-card.pending .stage-status {
+        background: color-mix(in srgb, var(--color-warning) 20%, transparent);
+        color: var(--color-warning);
+      }
+
+      .stage-status {
+        display: inline-flex;
+        align-items: center;
+        width: fit-content;
+        padding: 0.35rem 0.8rem;
+        border-radius: 999px;
+      }
+
       .progress {
         width: 100%;
         height: 10px;
@@ -143,7 +188,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
 
       .progress-bar {
         height: 100%;
-        background: linear-gradient(90deg, var(--color-1), var(--color-2));
+        background: linear-gradient(90deg, color-mix(in srgb, var(--color-accent) 75%, white), var(--color-2));
       }
 
       pre {
@@ -174,10 +219,13 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
     return html`
       <main>
         <section class="hero">
-          <a href="/jobs">${leftArrowIcon} Jobs</a>
+          <div class="version-actions">
+            <a href="/jobs">${leftArrowIcon} Jobs</a>
+            <a href=${`/jobs/${this.params.jobId}/logs`}>Logs ${detailsIcon}</a>
+          </div>
           <h1>${this.job.file}</h1>
           <div class="hero-grid">
-            <div class="metric"><span>Status</span><strong>${this.job.status}</strong></div>
+            <div class="metric"><span>Status</span><strong class=${`status-pill ${this.job.status}`}>${this.job.status}</strong></div>
             <div class="metric"><span>Progress</span><strong>${this.job.totalProgress}%</strong></div>
             <div class="metric"><span>Current stage</span><strong>${this.job.currentStage ?? "complete"}</strong></div>
             <div class="metric"><span>Artifacts</span><strong>${this.job.artifacts.filter((artifact) => artifact.versionCount > 0).length}</strong></div>
@@ -208,9 +256,9 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
 
   private renderStage(stage: JobStage): TemplateResult {
     return html`
-      <article class="stage-card">
+      <article class=${`stage-card ${stage.status}`}>
         <div><strong>${stage.label}</strong></div>
-        <div>${stage.status}</div>
+        <div class="stage-status">${stage.status}</div>
         <div class="progress"><div class="progress-bar" style=${`width:${stage.progress}%`}></div></div>
         <div>${stage.progress}%</div>
         ${stage.message ? html`<div>${stage.message}</div>` : html``}

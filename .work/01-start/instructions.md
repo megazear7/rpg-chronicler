@@ -24,3 +24,4 @@ When you have processed all files, update the pull request with a description of
 04-ui.md
 05-editing.md
 06-contentful.md
+07-style.md

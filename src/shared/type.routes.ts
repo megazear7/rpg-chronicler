@@ -3,7 +3,7 @@ import z from "zod";
 export const RoutePath = z.string();
 export type RoutePath = z.infer<typeof RoutePath>;
 
-export const RouteName = z.enum(["home", "jobs", "job", "example", "not_found"]);
+export const RouteName = z.enum(["home", "jobs", "job", "job_logs", "example", "not_found"]);
 export type RouteName = z.infer<typeof RouteName>;
 
 export const RouteConfig = z.object({

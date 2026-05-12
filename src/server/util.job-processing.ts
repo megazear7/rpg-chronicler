@@ -7,6 +7,7 @@ import { getAppConfig } from "./util.app.js";
 import { getTextCompletion } from "./util.submit-prompt.js";
 import { loadAudioClient } from "./util.model.js";
 import {
+  appendJobLog,
   failJob,
   getJobProgressDir,
   getJobSourceDir,
@@ -91,11 +92,13 @@ export async function startJobProcessing(jobId: string, sourcePath: string): Pro
 }
 
 async function runJobProcessing(jobId: string, sourcePath: string): Promise<void> {
+  await appendJobLog(jobId, "info", "prepare_audio", "Starting background processing.");
   await updateStage(jobId, "prepare_audio", "running", 5, "Validating and preparing audio.");
   const { processedFilePath, processedFileName } = await prepareAudioFile(jobId, sourcePath);
   await updateStage(jobId, "prepare_audio", "completed", 100, `Prepared ${processedFileName}.`);
 
   const baseLength = await determineBaseLength(processedFilePath);
+  await appendJobLog(jobId, "info", "prepare_audio", `Estimated ${baseLength} words for downstream generation.`);
   const instructions = DEFAULT_INSTRUCTIONS;
   const songExample = DEFAULT_SONG_EXAMPLE;
   const songMod = SONG_MODIFIERS[Math.floor(Math.random() * SONG_MODIFIERS.length)];
@@ -121,6 +124,7 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
   await generateTextArtifact(jobId, "song_prompt", "songPrompt", buildSongPrompt(lyrics, songExample, songMod), NO_INSTRUCTIONS);
 
   await updateStage(jobId, "contentful", "completed", 100, "Contentful payload ready for approval.");
+  await appendJobLog(jobId, "success", "contentful", "All artifacts generated and Contentful preview is ready.");
   await updateJob(jobId, (job) => ({
     ...job,
     errorMessage: null,
@@ -179,17 +183,20 @@ async function sendTextMessage(instructions: string, prompt: string): Promise<st
 
 async function createBulletPoints(jobId: string, audioFilePath: string, instructions: string): Promise<string> {
   const duration = await getAudioDuration(audioFilePath);
+  await appendJobLog(jobId, "info", "bullet_points", `Audio duration detected: ${Math.ceil(duration / 60)} minutes.`);
   const progressDir = getJobProgressDir(jobId);
   await fs.mkdir(path.join(progressDir, "audio-parts"), { recursive: true });
   await fs.mkdir(path.join(progressDir, "bullet-points"), { recursive: true });
 
   if (duration <= MAX_DIRECT_AUDIO_SECONDS) {
     await updateStage(jobId, "bullet_points", "running", 50, "Using direct audio processing.");
+    await appendJobLog(jobId, "info", "bullet_points", "Audio is within direct processing limits.");
     return sendAudioMessage(audioFilePath, instructions, buildBulletPointsPrompt());
   }
 
   const parts = Math.ceil(duration / MAX_DIRECT_AUDIO_SECONDS);
   const partOutputs: string[] = [];
+  await appendJobLog(jobId, "warning", "bullet_points", `Splitting audio into ${parts} parts for processing.`);
 
   for (let index = 0; index < parts; index += 1) {
     const partNumber = index + 1;
@@ -199,6 +206,7 @@ async function createBulletPoints(jobId: string, audioFilePath: string, instruct
     const partPath = path.join(progressDir, "audio-parts", partName);
     const bulletPointPath = path.join(progressDir, "bullet-points", `${partName}.txt`);
 
+    await appendJobLog(jobId, "info", "bullet_points", `Creating and processing ${partName}.`);
     await splitAudio(audioFilePath, partPath, startTime, partDuration);
     const output = await sendAudioMessage(partPath, instructions, buildBulletPointsPrompt());
     await fs.writeFile(bulletPointPath, output, "utf-8");
@@ -255,10 +263,12 @@ async function prepareAudioFile(jobId: string, sourcePath: string): Promise<{ pr
   const audioBuffer = await fs.readFile(sourcePath);
   const fileType = await fileTypeFromBuffer(audioBuffer);
   if (!fileType || !ACCEPTED_AUDIO_TYPES.has(fileType.mime)) {
+    await appendJobLog(jobId, "error", "prepare_audio", "Uploaded file failed audio type validation.");
     throw new Error("Uploaded file must be an MP3 or M4A audio file.");
   }
 
   if (audioBuffer.length === 0) {
+    await appendJobLog(jobId, "error", "prepare_audio", "Uploaded file was empty.");
     throw new Error("Uploaded file is empty.");
   }
 
@@ -268,12 +278,14 @@ async function prepareAudioFile(jobId: string, sourcePath: string): Promise<{ pr
     if (processedFilePath !== sourcePath) {
       await fs.copyFile(sourcePath, processedFilePath);
     }
+    await appendJobLog(jobId, "success", "prepare_audio", "MP3 validated with no conversion required.");
     return { processedFilePath, processedFileName };
   }
 
   const processedFileName = "processed.mp3";
   const processedFilePath = path.join(sourceDir, processedFileName);
   await convertM4aToMp3(sourcePath, processedFilePath);
+  await appendJobLog(jobId, "success", "prepare_audio", "Converted uploaded audio to MP3.");
   return { processedFilePath, processedFileName };
 }
 

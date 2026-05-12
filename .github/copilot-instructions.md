@@ -1,3 +1,3 @@
-# Zelt Template Copilot Instructions
+# RPG Chronicler Copilot Instructions
 
 Review the `.github/prompts` directory for specific coding guidelines and best practices to follow when contributing to this project.

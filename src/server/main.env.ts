@@ -5,6 +5,10 @@ config();
 
 export const Env = z.object({
   APP_PORT: z.string().default("3000").describe("The port the server listens on."),
+  GROK_MODEL_API_KEY: z.string().describe("API key for the Grok model."),
+  OPENAI_MODEL_API_KEY: z.string().describe("API key for OpenAI models."),
+  CONTENTFUL_SPACE_ID: z.string().describe("Contentful Space ID."),
+  CONTENTFUL_MANAGEMENT_API_KEY: z.string().describe("Contentful Management API Key."),
 });
 export type Env = z.infer<typeof Env>;
 

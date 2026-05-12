@@ -1,26 +1,27 @@
 html {
   /* Colors */
-  --color-1: #e7502c;
-  --color-2: #89d154;
+  --color-1: #d7683e;
+  --color-2: #8fbf5a;
+  --color-primary-background: #16191f;
 
   /* Primary surface colors */
-  --color-primary-surface: #2c2f33;
-  --color-primary-text: #e0e6ed;
-  --color-primary-text-muted: #999;
-  --color-primary-text-bold: #666;
+  --color-primary-surface: #1d232c;
+  --color-primary-text: #eef2f7;
+  --color-primary-text-muted: #94a0b2;
+  --color-primary-text-bold: #c6d0de;
 
   /* Secondary surface colors */
-  --color-secondary-surface: #2c2f33;
-  --color-secondary-text: #e0e6ed;
-  --color-secondary-text-muted: #999;
-  --color-secondary-text-bold: #666;
+  --color-secondary-surface: #242b35;
+  --color-secondary-text: #eef2f7;
+  --color-secondary-text-muted: #8d99a8;
+  --color-secondary-text-bold: #cad5e4;
 
   /* Additional colors */
-  --color-accent: #39a7e8;
-  --color-error: #ff2121;
-  --color-danger: #ff311e;
-  --color-warning: #fdd848;
-  --color-success: rgb(56, 173, 56);
+  --color-accent: #58b3ff;
+  --color-error: #ff5c5c;
+  --color-danger: #ff6443;
+  --color-warning: #f2c96d;
+  --color-success: #69c07d;
 
   /* Sizes */
   --size-8x: 300px;
@@ -44,18 +45,18 @@ html {
   --font-small: 14px;
   --font-tiny: 12px;
   --line-height: 1.6;
-  --font-family: "Inter", sans-serif;
+  --font-family: "Avenir Next", "Segoe UI", sans-serif;
 
   /* Borders */
   --border-normal: 2px solid transparent;
   --border-active: 2px solid var(--color-1);
-  --border-radius-medium: 12px;
-  --border-radius-large: 20px;
+  --border-radius-medium: 18px;
+  --border-radius-large: 32px;
 
   /* Shadows */
-  --shadow-normal: 0 4px 12px rgba(0, 0, 0, 0.1);
-  --shadow-active: 0 4px 12px rgba(0, 0, 0, 0.3);
-  --shadow-hover: 0 6px 20px rgba(0, 0, 0, 0.5);
+  --shadow-normal: 0 18px 40px rgba(0, 0, 0, 0.2);
+  --shadow-active: 0 20px 44px rgba(0, 0, 0, 0.32);
+  --shadow-hover: 0 26px 60px rgba(0, 0, 0, 0.4);
   --shadow-inverse-normal: 0 6px 20px rgba(255, 255, 255, 0.1);
   --shadow-inverse-active: 0 6px 20px rgba(255, 255, 255, 0.3);
   --shadow-inverse-hover: 0 6px 20px rgba(255, 255, 255, 0.5);
@@ -69,11 +70,13 @@ html {
 
   margin: 0;
   padding: 0;
-  background-color: var(--color-primary-surface);
+  background:
+    radial-gradient(circle at top, rgba(88, 179, 255, 0.12), transparent 32%),
+    linear-gradient(180deg, #14181e 0%, #171c23 100%);
 }
 
 body {
-  background-color: var(--color-primary-surface);
+  background: transparent;
   color: var(--color-primary-text);
   font-size: var(--font-medium);
   font-family: var(--font-family);

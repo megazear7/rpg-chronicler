@@ -1,6 +1,4 @@
-# ZeltTemplate
-
-This project was built with the [Zelt Template](https://github.com/megazear7/zelt-stack-template)
+# RPG Chronicler
 
 ## Setup
 

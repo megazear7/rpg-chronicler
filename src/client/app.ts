@@ -11,6 +11,9 @@ import { NavigationEventName } from "./event.navigation.js";
 import { SuccessEventName } from "./event.success.js";
 import { WarningEventName } from "./event.warning.js";
 import "./page.home.js";
+import "./page.jobs.js";
+import "./page.job.js";
+import "./page.job-logs.js";
 import "./page.example.js";
 import "./page.not-found.js";
 import "./component.toast.js";
@@ -76,6 +79,21 @@ export class RpgChroniclerApp extends LitElement {
               return html`
                 <div class="app-bar"></div>
                 <rpg-chronicler-home-page></rpg-chronicler-home-page>
+              `;
+            case RouteName.enum.jobs:
+              return html`
+                <div class="app-bar"></div>
+                <rpg-chronicler-jobs-page></rpg-chronicler-jobs-page>
+              `;
+            case RouteName.enum.job:
+              return html`
+                <div class="app-bar"></div>
+                <rpg-chronicler-job-page></rpg-chronicler-job-page>
+              `;
+            case RouteName.enum.job_logs:
+              return html`
+                <div class="app-bar"></div>
+                <rpg-chronicler-job-logs-page></rpg-chronicler-job-logs-page>
               `;
             case RouteName.enum.example:
               return html`

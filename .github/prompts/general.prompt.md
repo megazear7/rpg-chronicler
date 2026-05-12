@@ -106,5 +106,3 @@
  - Use `npm run build` to compile the TypeScript code.
  - Use `npm start` to run the development server.
  - Use the chrome-devtools extension for debugging client-side code and checking console errors, but only when absolutely necessary.
- - If the changes are large, first come up with a development plan and save it in `.github/prompts/work-plan.md` before starting.
- - When work plans are needed, first ask me to review it before starting the implementation.

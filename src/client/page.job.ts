@@ -3,19 +3,10 @@ import { customElement, state } from "lit/decorators.js";
 import { parseRouteParams } from "../shared/util.route-params.js";
 import { getJobService } from "../shared/service.get-job.js";
 import { streamJobService } from "../shared/service.stream-job.js";
-import {
-  ArtifactDetail,
-  ArtifactSummary,
-  ArtifactVersion,
-  JobDetail,
-  JobStage,
-} from "../shared/type.job.js";
+import { JobDetail, JobStage } from "../shared/type.job.js";
 import { globalStyles } from "./styles.global.js";
 import { RpgChroniclerAppProvider } from "./provider.app.js";
 import { detailsIcon, leftArrowIcon } from "./icons.js";
-import { updateArtifactService } from "../shared/service.update-artifact.js";
-import { activateArtifactVersionService } from "../shared/service.activate-artifact-version.js";
-import { deleteArtifactVersionService } from "../shared/service.delete-artifact-version.js";
 import { sendJobToContentfulService } from "../shared/service.send-job-to-contentful.js";
 import { dispatch } from "./util.events.js";
 import { SuccessEvent } from "./event.success.js";
@@ -25,7 +16,6 @@ import { WarningEvent } from "./event.warning.js";
 export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
   private params = parseRouteParams("/jobs/:jobId", window.location.pathname);
   @state() private job: JobDetail | null = null;
-  @state() private editors: Record<string, string> = {};
   private eventSource: EventSource | null = null;
 
   static override styles = [
@@ -49,8 +39,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
       }
 
       .hero-grid,
-      .stage-grid,
-      .artifact-grid {
+      .stage-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
         gap: var(--size-large);
@@ -61,8 +50,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         gap: var(--size-small);
       }
 
-      .stage-card,
-      .artifact-card {
+      .stage-card {
         background: color-mix(in srgb, var(--color-secondary-surface) 88%, black);
         border-radius: 26px;
         padding: var(--size-medium);
@@ -71,25 +59,12 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         box-shadow: var(--shadow-normal);
       }
 
-      .artifact-actions,
-      .version-actions,
-      .version-header {
+      .version-actions {
         display: flex;
         gap: var(--size-small);
         flex-wrap: wrap;
         align-items: center;
         justify-content: space-between;
-      }
-
-      textarea {
-        min-height: 160px;
-        width: 100%;
-        background: color-mix(in srgb, var(--color-primary-background) 70%, black);
-        color: var(--color-primary-text);
-        border: 1px solid color-mix(in srgb, var(--color-primary-text) 18%, transparent);
-        border-radius: var(--radius-medium);
-        padding: var(--size-medium);
-        font: inherit;
       }
 
       button {
@@ -100,27 +75,6 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         background: color-mix(in srgb, var(--color-primary-background) 68%, transparent);
         color: var(--color-primary-text);
         box-shadow: var(--shadow-normal);
-      }
-
-      .secondary {
-        background: color-mix(in srgb, var(--color-primary-text) 10%, transparent);
-      }
-
-      .danger {
-        background: var(--color-error);
-      }
-
-      .version-list {
-        display: grid;
-        gap: var(--size-small);
-      }
-
-      .version-item {
-        border: 1px solid color-mix(in srgb, var(--color-primary-text) 12%, transparent);
-        border-radius: var(--radius-medium);
-        padding: var(--size-medium);
-        display: grid;
-        gap: var(--size-small);
       }
 
       .contentful-preview {
@@ -176,6 +130,15 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         width: fit-content;
         padding: 0.35rem 0.8rem;
         border-radius: 999px;
+      }
+
+      .stage-link {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .stage-link:hover {
+        text-decoration: underline;
       }
 
       .progress {
@@ -240,13 +203,6 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         </section>
 
         <section class="panel">
-          <h2>Artifacts</h2>
-          <div class="artifact-grid">
-            ${this.job.artifacts.map((artifact) => this.renderArtifact(artifact))}
-          </div>
-        </section>
-
-        <section class="panel">
           <h2>Contentful</h2>
           ${this.renderContentful()}
         </section>
@@ -257,7 +213,9 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
   private renderStage(stage: JobStage): TemplateResult {
     return html`
       <article class=${`stage-card ${stage.status}`}>
-        <div><strong>${stage.label}</strong></div>
+        <div>
+          <strong><a class="stage-link" href=${this.renderStagePath(stage.name)}>${stage.label}</a></strong>
+        </div>
         <div class="stage-status">${stage.status}</div>
         <div class="progress"><div class="progress-bar" style=${`width:${stage.progress}%`}></div></div>
         <div>${stage.progress}%</div>
@@ -266,166 +224,8 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
     `;
   }
 
-  private renderArtifact(artifact: ArtifactSummary): TemplateResult {
-    const activeVersion = this.resolveActiveVersion(artifact);
-    const versions = this.job?.artifactVersions[artifact.key] ?? [];
-    const editorValue = this.editors[artifact.key] ?? activeVersion?.text ?? "";
-    return html`
-      <article class="artifact-card">
-        <div class="version-header">
-          <strong>${artifact.label}</strong>
-          <span>Versions: ${artifact.versionCount}</span>
-        </div>
-        ${activeVersion
-          ? html`
-              <div class="artifact-actions">
-                <span class="pill">Active ${activeVersion.source}</span>
-                ${artifact.generatedVersionId === activeVersion.id ? html`<span class="pill">Generated</span>` : html``}
-              </div>
-              <pre>${activeVersion.text}</pre>
-            `
-          : html`<div>Not generated yet.</div>`}
-
-        <label>
-          <div>Edit active text</div>
-          <textarea .value=${editorValue} @input=${(event: Event) => this.handleEditorInput(artifact.key, event)}></textarea>
-        </label>
-        <div class="artifact-actions">
-          <button @click=${() => this.handleArtifactSave(artifact)}>Save new version</button>
-        </div>
-
-        <div class="version-list">
-          ${versions.map((version) => this.renderVersion(artifact, version))}
-        </div>
-      </article>
-    `;
-  }
-
-  private renderVersion(artifact: ArtifactSummary, version: ArtifactVersion): TemplateResult {
-    const isActive = artifact.activeVersionId === version.id;
-    const isDeleted = Boolean(version.deletedAt);
-    const isGenerated = artifact.generatedVersionId === version.id;
-
-    return html`
-      <div class="version-item">
-        <div class="version-header">
-          <div class="artifact-actions">
-            <span class="pill">${version.source}</span>
-            ${isGenerated ? html`<span class="pill">Generated</span>` : html``}
-            ${isActive ? html`<span class="pill">Active</span>` : html``}
-            ${isDeleted ? html`<span class="pill">Deleted</span>` : html``}
-          </div>
-          <small>${new Date(version.createdAt).toLocaleString()}</small>
-        </div>
-        <pre>${version.text}</pre>
-        <div class="version-actions">
-          <button class="secondary" ?disabled=${isActive || isDeleted} @click=${() => this.handleActivateVersion(artifact, version)}>
-            Make active
-          </button>
-          <button class="danger" ?disabled=${isDeleted} @click=${() => this.handleDeleteVersion(artifact, version)}>
-            Delete version
-          </button>
-        </div>
-      </div>
-    `;
-  }
-
-  private resolveActiveVersion(artifact: ArtifactSummary): ArtifactVersion | null {
-    const versions = this.job?.artifactVersions[artifact.key] ?? [];
-    return versions.find((version) => version.id === artifact.activeVersionId) ?? null;
-  }
-
-  private handleEditorInput(artifactKey: string, event: Event): void {
-    const target = event.currentTarget as HTMLTextAreaElement;
-    this.editors = {
-      ...this.editors,
-      [artifactKey]: target.value,
-    };
-  }
-
-  private async handleArtifactSave(artifact: ArtifactSummary): Promise<void> {
-    const text = this.editors[artifact.key] ?? this.resolveActiveVersion(artifact)?.text ?? "";
-    if (text.trim().length === 0) {
-      dispatch(this, WarningEvent("Artifact text cannot be empty."));
-      return;
-    }
-
-    try {
-      const detail = await updateArtifactService.fetch({
-        jobId: this.params.jobId,
-        artifactKey: artifact.key,
-        text,
-      });
-      this.applyArtifactDetail(detail);
-      dispatch(this, SuccessEvent(`${artifact.label} saved as a new version.`));
-    } catch (error) {
-      dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to save artifact."));
-    }
-  }
-
-  private async handleActivateVersion(artifact: ArtifactSummary, version: ArtifactVersion): Promise<void> {
-    try {
-      const detail = await activateArtifactVersionService.fetch({
-        jobId: this.params.jobId,
-        artifactKey: artifact.key,
-        versionId: version.id,
-      });
-      this.applyArtifactDetail(detail);
-      this.editors = {
-        ...this.editors,
-        [artifact.key]: detail.activeVersion?.text ?? "",
-      };
-      dispatch(this, SuccessEvent(`${artifact.label} reverted to a previous version.`));
-    } catch (error) {
-      dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to activate version."));
-    }
-  }
-
-  private async handleDeleteVersion(artifact: ArtifactSummary, version: ArtifactVersion): Promise<void> {
-    try {
-      const detail = await deleteArtifactVersionService.fetch({
-        jobId: this.params.jobId,
-        artifactKey: artifact.key,
-        versionId: version.id,
-      });
-      this.applyArtifactDetail(detail);
-      dispatch(this, SuccessEvent(`${artifact.label} version deleted.`));
-    } catch (error) {
-      dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to delete version."));
-    }
-  }
-
-  private applyArtifactDetail(detail: ArtifactDetail): void {
-    if (!this.job) {
-      return;
-    }
-
-    this.job = JobDetail.parse({
-      ...this.job,
-      artifacts: this.job.artifacts.map((artifact) =>
-        artifact.key === detail.key
-          ? {
-              key: detail.key,
-              label: detail.label,
-              activeVersionId: detail.activeVersionId,
-              generatedVersionId: detail.generatedVersionId,
-              versionCount: detail.versionCount,
-              updatedAt: detail.updatedAt,
-            }
-          : artifact,
-      ),
-      artifactVersions: {
-        ...this.job.artifactVersions,
-        [detail.key]: detail.versions,
-      },
-      contentful: {
-        ...this.job.contentful,
-        title: detail.key === "title" ? detail.activeVersion?.text ?? null : this.job.contentful.title,
-        summary: detail.key === "summary" ? detail.activeVersion?.text ?? null : this.job.contentful.summary,
-        story: detail.key === "story" ? detail.activeVersion?.text ?? null : this.job.contentful.story,
-        dmNotes: detail.key === "dmNotes" ? detail.activeVersion?.text ?? null : this.job.contentful.dmNotes,
-      },
-    });
+  private renderStagePath(stageName: JobStage["name"]): string {
+    return `/jobs/${this.params.jobId}/stage/${stageName.replace(/_/g, "-")}`;
   }
 
   private renderContentful(): TemplateResult {

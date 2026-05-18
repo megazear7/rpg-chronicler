@@ -148,6 +148,23 @@ export const detailsIcon = html`
   </svg>
 `;
 
+export const copyIcon = html`
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    width="24"
+    height="24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true">
+    <rect x="9" y="9" width="10" height="10" rx="2" />
+    <path d="M5 15V7a2 2 0 0 1 2-2h8" />
+  </svg>
+`;
+
 export const editIcon = html`
   <svg
     xmlns="http://www.w3.org/2000/svg"

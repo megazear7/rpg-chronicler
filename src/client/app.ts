@@ -13,6 +13,7 @@ import { WarningEventName } from "./event.warning.js";
 import "./page.home.js";
 import "./page.jobs.js";
 import "./page.job.js";
+import "./page.job-stage.js";
 import "./page.job-logs.js";
 import "./page.example.js";
 import "./page.not-found.js";
@@ -89,6 +90,11 @@ export class RpgChroniclerApp extends LitElement {
               return html`
                 <div class="app-bar"></div>
                 <rpg-chronicler-job-page></rpg-chronicler-job-page>
+              `;
+            case RouteName.enum.job_stage:
+              return html`
+                <div class="app-bar"></div>
+                <rpg-chronicler-job-stage-page></rpg-chronicler-job-stage-page>
               `;
             case RouteName.enum.job_logs:
               return html`

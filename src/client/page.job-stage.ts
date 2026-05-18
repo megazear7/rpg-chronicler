@@ -191,7 +191,7 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
 
       .version-list,
       .log-list {
-        gap: var(--size-medium);
+        gap: var(--size-large);
       }
 
       .version-item,

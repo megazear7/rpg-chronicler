@@ -5,6 +5,7 @@ import { JobIndex } from "./type.job.js";
 
 export const CreateJobBodyParameters = z.object({
   file: z.any(),
+  instructionsText: z.string().min(1),
 });
 export type CreateJobBodyParameters = z.infer<typeof CreateJobBodyParameters>;
 
@@ -17,6 +18,7 @@ export class CreateJobService extends AbstractService<CreateJobBodyParameters, N
     const bodyParams = CreateJobBodyParameters.parse(params);
     const formData = new FormData();
     formData.append("file", bodyParams.file);
+    formData.append("instructionsText", bodyParams.instructionsText);
 
     const response = await fetch(this.path, {
       method: this.method.toUpperCase(),

@@ -9,6 +9,10 @@ export const routes = [
     path: "/",
   },
   {
+    name: RouteName.enum.instructions,
+    path: "/instructions",
+  },
+  {
     name: RouteName.enum.jobs,
     path: "/jobs",
   },

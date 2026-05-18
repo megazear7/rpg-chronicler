@@ -6,6 +6,7 @@ import { ChatCompletionCreateParamsNonStreaming, ChatCompletionMessageParam } fr
 import { getAppConfig } from "./util.app.js";
 import { getTextCompletion } from "./util.submit-prompt.js";
 import { loadAudioClient } from "./util.model.js";
+import { DEFAULT_INSTRUCTION_CONFIG, InstructionConfig } from "../shared/type.instructions.js";
 import {
   appendJobLog,
   failJob,
@@ -16,6 +17,7 @@ import {
   updateJob,
   updateStage,
 } from "./util.job-store.js";
+import { buildInstructionText, normalizeInstructionConfig } from "../shared/util.instructions.js";
 
 const NO_INSTRUCTIONS = "NO_INSTRUCTIONS";
 const WORDS_PER_MINUTE_OF_AUDIO = 4;
@@ -23,42 +25,7 @@ const MINIMUM_WORDS = 300;
 const MAXIMUM_WORDS = 2000;
 const MAX_DIRECT_AUDIO_SECONDS = 45 * 60;
 
-const DEFAULT_INSTRUCTIONS = `You are an expert game master and writer specializing in tabletop roleplaying games.
-You create session reports that are clear, concise, and useful for game masters.
-You also write engaging narrative summaries that capture the essence of the characters and story.
-
-The game master is:
- - Dennis (Sometimes referred to as Dad or Grampy)
-
-The players are:
- - Pippa
- - Kilian
- - Mikayla (Sometimes referred to as Mom)
- - Alex (Sometimes referred to as Dad)
- - Michal
-
-The characters are:
- - Ragana: Elf rouge played by Pippa
- - Drokin: Human Fighter played by Kilian
- - Harlina: Halfling rogue played by Mikayla
- - Dow: Dwarf Paladin played by Dennis
- - Aurelian: Gnome wizard played by Michal
-
-Some other names to be aware of:
- - Cadence
- - Tasha
- - Draldren
- - Grimgor
- - Lord Tayrigan
- - Lord Harlan
- - Stessa Goldenkey
- - Winder the dog
- - Mehpiston
- - JanCastle (the name of a kingdom, city, and family)
- - Farweather (the name of the town that the adventure takes place in)
- - Stormcrest Isles
- - Swarrdel Isle
- - Gohlond (a city on the Swarrdel Isle)`;
+const DEFAULT_INSTRUCTIONS = buildInstructionText(InstructionConfig.parse(DEFAULT_INSTRUCTION_CONFIG));
 
 const DEFAULT_SONG_EXAMPLE = `Epic orchestral ballad, classical symphony, no percussion, no guitars, no modern/pop elements.
 
@@ -100,7 +67,7 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
 
   const baseLength = await determineBaseLength(processedFilePath);
   await appendJobLog(jobId, "info", "prepare_audio", `Estimated ${baseLength} words for downstream generation.`);
-  const instructions = DEFAULT_INSTRUCTIONS;
+  const instructions = await resolveJobInstructions(jobId);
   const songExample = DEFAULT_SONG_EXAMPLE;
   const songMod = SONG_MODIFIERS[Math.floor(Math.random() * SONG_MODIFIERS.length)];
 
@@ -130,6 +97,20 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     ...job,
     errorMessage: null,
   }));
+}
+
+async function resolveJobInstructions(jobId: string): Promise<string> {
+  const job = await readJob(jobId);
+  if (job.instructionsText && job.instructionsText.trim().length > 0) {
+    return job.instructionsText;
+  }
+
+  try {
+    const appConfig = await getAppConfig();
+    return buildInstructionText(normalizeInstructionConfig(appConfig.instructions));
+  } catch {
+    return DEFAULT_INSTRUCTIONS;
+  }
 }
 
 async function generateTextArtifact(

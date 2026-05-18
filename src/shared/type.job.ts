@@ -100,6 +100,7 @@ export type JobContentful = z.infer<typeof JobContentful>;
 export const JobIndex = z.object({
   id: z.uuid(),
   file: z.string(),
+  instructionsText: z.string().nullable().optional(),
   status: JobStatus,
   totalProgress: z.number().min(0).max(100),
   createdAt: z.string().datetime(),

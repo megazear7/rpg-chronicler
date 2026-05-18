@@ -5,7 +5,7 @@ import { streamJobsService } from "../shared/service.stream-jobs.js";
 import { JobIndex, JobListResponse } from "../shared/type.job.js";
 import { globalStyles } from "./styles.global.js";
 import { RpgChroniclerAppProvider } from "./provider.app.js";
-import { detailsIcon, leftArrowIcon, rightArrowIcon } from "./icons.js";
+import { leftArrowIcon } from "./icons.js";
 
 @customElement("rpg-chronicler-jobs-page")
 export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
@@ -46,6 +46,23 @@ export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
         display: grid;
         gap: var(--size-medium);
         border: 1px solid color-mix(in srgb, var(--color-primary-text) 10%, transparent);
+        color: var(--color-primary-text);
+        text-decoration: none;
+        transition:
+          transform 140ms ease,
+          border-color 140ms ease,
+          box-shadow 140ms ease;
+      }
+
+      .job-card:hover {
+        color: var(--color-primary-text);
+        box-shadow: var(--shadow-hover), 0 0 0 1px color-mix(in srgb, var(--color-primary-text) 12%, transparent);
+        border-color: color-mix(in srgb, var(--color-accent) 36%, transparent);
+      }
+
+      .job-card:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 3px;
       }
 
       .status-row,
@@ -142,18 +159,14 @@ export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
 
   private renderJob(job: JobIndex): TemplateResult {
     return html`
-      <article class="job-card">
+      <a class="job-card" href=${`/jobs/${job.id}`}>
         <div>
           <div class="stage-row"><strong>${job.file}</strong><span class=${`status-pill ${job.status}`}>${job.status}</span></div>
           <div class="status-row"><span>Current stage</span><span>${job.currentStage ?? "complete"}</span></div>
         </div>
         <div class="progress"><div class="progress-bar" style=${`width:${job.totalProgress}%`}></div></div>
         <div class="status-row"><span>Total progress</span><span>${job.totalProgress}%</span></div>
-        <div class="status-row">
-          <a href=${`/jobs/${job.id}`}>Open job ${rightArrowIcon}</a>
-          <a href=${`/jobs/${job.id}/logs`}>Logs ${detailsIcon}</a>
-        </div>
-      </article>
+      </a>
     `;
   }
 

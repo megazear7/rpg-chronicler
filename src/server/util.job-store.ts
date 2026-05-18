@@ -157,13 +157,14 @@ export function getArtifactVersionsDir(jobId: string, key: ArtifactKey): string 
   return path.join(getArtifactDir(jobId, key), "versions");
 }
 
-export async function createJob(fileName: string): Promise<JobIndex> {
+export async function createJob(fileName: string, instructionsText: string): Promise<JobIndex> {
   const id = randomUUID();
   const timestamp = now();
   const job = hydrateJob(
     JobIndex.parse({
       id,
       file: fileName,
+      instructionsText,
       status: JobStatus.enum.queued,
       totalProgress: 0,
       createdAt: timestamp,

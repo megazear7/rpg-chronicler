@@ -5,6 +5,7 @@ import { exampleGenerationController } from "./controller.example-generation.js"
 import { registerExampleDownload } from "./controller.example-download.js";
 import { registerUploadReference } from "./controller.example-upload.js";
 import { getAppConfigController } from "./controller.get-app-config.js";
+import { updateAppConfigController } from "./controller.update-app-config.js";
 import { registerCreateJob } from "./controller.create-job.js";
 import { listJobsController } from "./controller.list-jobs.js";
 import { getJobController } from "./controller.get-job.js";
@@ -20,6 +21,7 @@ const router = express.Router();
 clientController.register(router);
 healthController.register(router);
 getAppConfigController.register(router);
+updateAppConfigController.register(router);
 exampleGenerationController.register(router);
 registerUploadReference(router);
 registerExampleDownload(router);

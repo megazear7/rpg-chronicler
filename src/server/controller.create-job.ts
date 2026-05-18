@@ -3,7 +3,7 @@ import { randomUUID } from "crypto";
 import { promises as fs } from "fs";
 import multer from "multer";
 import { Router } from "express";
-import { createJobService } from "../shared/service.create-job.js";
+import { CreateJobBodyParameters, createJobService } from "../shared/service.create-job.js";
 import { RouteError } from "./main.errors.js";
 import { createJob, getJobSourceDir, readJob, updateStage } from "./util.job-store.js";
 import { startJobProcessing } from "./util.job-processing.js";
@@ -30,7 +30,9 @@ export async function registerCreateJob(router: Router): Promise<void> {
         throw new RouteError(400, "A file upload is required.");
       }
 
-      const job = await createJob(req.file.originalname);
+      const instructionsText = CreateJobBodyParameters.shape.instructionsText.parse(req.body.instructionsText);
+
+      const job = await createJob(req.file.originalname, instructionsText);
       const extension = path.extname(req.file.originalname) || path.extname(req.file.filename) || ".mp3";
       const originalPath = path.join(getJobSourceDir(job.id), `original${extension.toLowerCase()}`);
       await fs.rename(req.file.path, originalPath);

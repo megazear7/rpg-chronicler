@@ -81,6 +81,7 @@ const SONG_MODIFIERS = [
 ];
 
 const ACCEPTED_AUDIO_TYPES = new Set(["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/mp4a-latm"]);
+const ACCEPTED_AUDIO_EXTENSIONS = new Set([".mp3", ".m4a"]);
 
 export async function startJobProcessing(jobId: string, sourcePath: string): Promise<void> {
   void runJobProcessing(jobId, sourcePath).catch(async (error: unknown) => {
@@ -261,18 +262,22 @@ async function sendAudioMessage(audioFilePath: string, instructions: string, pro
 async function prepareAudioFile(jobId: string, sourcePath: string): Promise<{ processedFilePath: string; processedFileName: string }> {
   const sourceDir = getJobSourceDir(jobId);
   const audioBuffer = await fs.readFile(sourcePath);
-  const fileType = await fileTypeFromBuffer(audioBuffer);
-  if (!fileType || !ACCEPTED_AUDIO_TYPES.has(fileType.mime)) {
-    await appendJobLog(jobId, "error", "prepare_audio", "Uploaded file failed audio type validation.");
-    throw new Error("Uploaded file must be an MP3 or M4A audio file.");
-  }
-
   if (audioBuffer.length === 0) {
     await appendJobLog(jobId, "error", "prepare_audio", "Uploaded file was empty.");
     throw new Error("Uploaded file is empty.");
   }
 
-  if (fileType.mime === "audio/mpeg") {
+  const fileType = await fileTypeFromBuffer(audioBuffer);
+  const extension = path.extname(sourcePath).toLowerCase();
+  const isAcceptedByMime = fileType ? ACCEPTED_AUDIO_TYPES.has(fileType.mime) : false;
+  const isAcceptedByExtension = ACCEPTED_AUDIO_EXTENSIONS.has(extension);
+
+  if (!isAcceptedByMime && !isAcceptedByExtension) {
+    await appendJobLog(jobId, "error", "prepare_audio", "Uploaded file failed audio type validation.");
+    throw new Error("Uploaded file must be an MP3 or M4A audio file.");
+  }
+
+  if (fileType?.mime === "audio/mpeg" || extension === ".mp3") {
     const processedFileName = "processed.mp3";
     const processedFilePath = path.join(sourceDir, processedFileName);
     if (processedFilePath !== sourcePath) {

@@ -5,7 +5,7 @@ import { JobDetail } from "../shared/type.job.js";
 import { AbstractController } from "./main.controller.js";
 import { RouteError } from "./main.errors.js";
 import { createContentfulEvent } from "./util.contentful.js";
-import { readJobDetail, updateJob, updateStage } from "./util.job-store.js";
+import { markNotionReady, readJobDetail, updateJob, updateStage, getJobImagePath } from "./util.job-store.js";
 
 export class SendJobToContentfulController extends AbstractController<NoBodyParams, JobPathParameters, JobDetail> {
   async handler({ pathParams }: RequestOptions<NoBodyParams, JobPathParameters>): Promise<JobDetail> {
@@ -15,6 +15,13 @@ export class SendJobToContentfulController extends AbstractController<NoBodyPara
     }
     if (!current.contentful.title || !current.contentful.summary || !current.contentful.story || !current.contentful.dmNotes) {
       throw new RouteError(400, "Title, summary, story, and DM notes must be available before sending to Contentful.");
+    }
+    const selectedImage = current.image.generatedAssets.find((asset) => asset.id === current.image.selectedAssetId && asset.approvedAt);
+    if (!selectedImage) {
+      throw new RouteError(400, "Approve an image before sending this event to Contentful.");
+    }
+    if (!current.song.songUrl) {
+      throw new RouteError(400, "Choose a song before sending this event to Contentful.");
     }
 
     await updateJob(pathParams.jobId, (job) => ({
@@ -26,12 +33,22 @@ export class SendJobToContentfulController extends AbstractController<NoBodyPara
     }));
     await updateStage(pathParams.jobId, "contentful", "running", 50, "Sending approved content to Contentful.");
 
-    const contentfulEntry = await createContentfulEvent(
-      current.contentful.title,
-      current.contentful.summary,
-      current.contentful.story,
-      current.contentful.dmNotes,
-    );
+    const contentfulEntry = await createContentfulEvent({
+      title: current.contentful.title,
+      summary: current.contentful.summary,
+      description: current.contentful.story,
+      dmNotes: current.contentful.dmNotes,
+      songUrl: current.song.songUrl,
+      adventureId: current.submission?.adventure?.id ?? current.submission?.selection.adventureId ?? null,
+      locationIds: current.submission?.locations.map((entry) => entry.id) ?? [],
+      characterIds: current.submission?.characters.map((entry) => entry.id) ?? [],
+      npcIds: current.submission?.npcs.map((entry) => entry.id) ?? [],
+      year: current.submission?.selection.year ?? null,
+      month: current.submission?.selection.month ?? null,
+      day: current.submission?.selection.day ?? null,
+      imagePath: getJobImagePath(pathParams.jobId, selectedImage.fileName),
+      imageMimeType: selectedImage.mimeType,
+    });
 
     await updateJob(pathParams.jobId, (job) => ({
       ...job,
@@ -44,6 +61,8 @@ export class SendJobToContentfulController extends AbstractController<NoBodyPara
       },
     }));
     await updateStage(pathParams.jobId, "contentful", "completed", 100, "Sent to Contentful.");
+    await markNotionReady(pathParams.jobId);
+    await updateStage(pathParams.jobId, "notion", "running", 50, "Ready to send DM notes to Notion.");
 
     return readJobDetail(pathParams.jobId);
   }

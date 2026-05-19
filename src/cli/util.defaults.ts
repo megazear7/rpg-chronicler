@@ -5,7 +5,7 @@ export const defaults: Record<ModelTypeOption, ModelTypeConfig> = {
   [ModelTypeOption.enum.grok]: {
     name: "grok",
     endpoint: "https://api.x.ai/v1",
-    modelName: "grok-4-0709",
+    modelName: "grok-4.3",
     cost: {
       inputTokenCost: 3,
       inputTokenCount: 0,
@@ -20,7 +20,7 @@ export const defaults: Record<ModelTypeOption, ModelTypeConfig> = {
   [ModelTypeOption.enum.openai]: {
     name: "openai",
     endpoint: "https://api.openai.com/v1",
-    modelName: "gpt-audio-2025-08-28",
+    modelName: "gpt-4o-audio-preview-2025-06-03",
     cost: {
       inputTokenCost: 2.5,
       inputTokenCount: 0,

@@ -9,6 +9,12 @@ export const Env = z.object({
   OPENAI_MODEL_API_KEY: z.string().describe("API key for OpenAI models."),
   CONTENTFUL_SPACE_ID: z.string().describe("Contentful Space ID."),
   CONTENTFUL_MANAGEMENT_API_KEY: z.string().describe("Contentful Management API Key."),
+  CONTENTFUL_ENVIRONMENT_ID: z.string().default("master").describe("Contentful environment ID."),
+  SUNO_API_KEY: z.string().optional().describe("Optional Suno API key."),
+  SUNO_API_BASE_URL: z.string().optional().describe("Optional Suno API base URL."),
+  NOTION_API_KEY: z.string().optional().describe("Optional Notion API key."),
+  NOTION_DATABASE_ID: z.string().optional().describe("Optional Notion database ID for DM notes."),
+  NOTION_PARENT_PAGE_ID: z.string().optional().describe("Optional Notion parent page ID or page URL for DM notes."),
 });
 export type Env = z.infer<typeof Env>;
 

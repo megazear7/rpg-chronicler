@@ -3,7 +3,9 @@ import { customElement, query, state } from "lit/decorators.js";
 import { globalStyles } from "./styles.global.js";
 import { RpgChroniclerAppProvider } from "./provider.app.js";
 import { createJobService } from "../shared/service.create-job.js";
+import { getContentfulCatalogService } from "../shared/service.get-contentful-catalog.js";
 import { listJobsService } from "../shared/service.list-jobs.js";
+import { ContentfulCatalog } from "../shared/type.contentful-context.js";
 import { JobIndex } from "../shared/type.job.js";
 import { dispatch } from "./util.events.js";
 import { SuccessEvent } from "./event.success.js";
@@ -12,8 +14,11 @@ import { NavigationEvent } from "./event.navigation.js";
 import { audioIcon, rightArrowIcon } from "./icons.js";
 import { normalizeInstructionConfig } from "../shared/util.instructions.js";
 import { updateAppConfigService } from "../shared/service.update-app-config.js";
+import { buildSelectionPreviewText, normalizeSubmissionSelection } from "../shared/util.contentful-context.js";
 import "./component.instructions-editor.js";
+import "./component.contentful-selection-editor.js";
 import { RpgChroniclerInstructionsEditor } from "./component.instructions-editor.js";
+import { RpgChroniclerContentfulSelectionEditor } from "./component.contentful-selection-editor.js";
 
 @customElement("rpg-chronicler-home-page")
 export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
@@ -22,7 +27,10 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
   @state() private latestJob: JobIndex | null = null;
   @state() private recentJobs: JobIndex[] = [];
   @state() private dragActive = false;
+  @state() private catalog: ContentfulCatalog | null = null;
+  @state() private selectionDraft = normalizeSubmissionSelection();
   @query("rpg-chronicler-instructions-editor") private instructionsEditor?: RpgChroniclerInstructionsEditor;
+  @query("rpg-chronicler-contentful-selection-editor") private selectionEditor?: RpgChroniclerContentfulSelectionEditor;
 
   static override styles = [
     globalStyles,
@@ -176,6 +184,19 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
         gap: var(--size-large);
       }
 
+      .workflow-list {
+        display: grid;
+        gap: var(--size-medium);
+      }
+
+      .workflow-step {
+        display: grid;
+        gap: var(--size-small);
+        padding: var(--size-medium);
+        border-radius: 24px;
+        background: color-mix(in srgb, var(--color-primary-background) 56%, transparent);
+      }
+
       .recent-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -266,6 +287,8 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
   ];
 
   override render(): TemplateResult {
+    const currentSelection = this.selectionDraft;
+    const previewContextText = this.buildPreviewContextText(currentSelection);
     return html`
       <main>
         <div class="shell">
@@ -298,15 +321,27 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
                 ? html`
                     <section class="panel review-panel">
                       <div class="eyebrow">Step 2</div>
+                      <h2>Configure the adventure context</h2>
+                      <p>These options come directly from Contentful and prefill from the most recent submission whenever one exists.</p>
+                      <rpg-chronicler-contentful-selection-editor
+                        .catalog=${this.catalog}
+                        .selection=${currentSelection}
+                        @selection-change=${this.handleSelectionChange}>
+                      </rpg-chronicler-contentful-selection-editor>
+                    </section>
+
+                    <section class="panel review-panel">
+                      <div class="eyebrow">Step 3</div>
                       <h2>Adjust instructions before creating the job</h2>
-                      <p>The opening paragraph is locked here. You can edit it from the dedicated instructions configuration page.</p>
+                      <p>The opening paragraph is locked here. You can edit it from the workflow configuration page.</p>
                       <rpg-chronicler-instructions-editor
                         .config=${normalizeInstructionConfig(this.appContext.app?.instructions)}
+                        .previewContextText=${previewContextText}
                         .editableIntro=${false}></rpg-chronicler-instructions-editor>
                       <div class="actions">
-                        <a class="browser-link" href="/instructions">Open instructions configuration</a>
+                        <a class="browser-link" href="/instructions">Open workflow configuration</a>
                         <button ?disabled=${this.submitting} @click=${this.handleSubmit}>
-                          ${this.submitting ? "Creating job..." : "Approve instructions and create job"}
+                          ${this.submitting ? "Creating job..." : "Approve setup and create job"}
                         </button>
                       </div>
                     </section>
@@ -328,6 +363,19 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
                   `
                 : html`<p>No upload has been submitted in this browser session yet.</p>`}
             </article>
+          </section>
+
+          <section class="panel">
+            <div class="eyebrow">Workflow</div>
+            <h2>Human and AI checkpoints</h2>
+            <div class="workflow-list">
+              <div class="workflow-step"><strong>Human 1</strong><span>Pick the adventure, DM, players, characters, locations, NPCs, and previous events.</span></div>
+              <div class="workflow-step"><strong>AI</strong><span>Prepare audio, extract bullet points, and generate story artifacts, image prompt, lyrics, and song prompt.</span></div>
+              <div class="workflow-step"><strong>Human 2</strong><span>Approve a generated image after reviewing or editing the image prompt.</span></div>
+              <div class="workflow-step"><strong>Human 3</strong><span>Approve the lyrics and song prompt, then choose the final song.</span></div>
+              <div class="workflow-step"><strong>Human 4</strong><span>Publish the event to Contentful with linked adventure context and the embedded approved image.</span></div>
+              <div class="workflow-step"><strong>Human 5</strong><span>Send DM notes to Notion after Contentful publishing is complete.</span></div>
+            </div>
           </section>
 
           <section class="panel">
@@ -354,7 +402,7 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
         </div>
 
         <nav class="bottom-nav">
-          <a href="/instructions">Configure instructions</a>
+          <a href="/instructions">Configure workflow defaults</a>
           <a href="/jobs">Browse all jobs ${rightArrowIcon}</a>
         </nav>
       </main>
@@ -363,8 +411,18 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
 
   override async load(): Promise<void> {
     await super.load();
-    const jobs = await listJobsService.fetch({ page: "1", pageSize: "4" });
+    const [jobs, catalog] = await Promise.all([listJobsService.fetch({ page: "1", pageSize: "4" }), getContentfulCatalogService.fetch()]);
     this.recentJobs = jobs.items;
+    this.catalog = catalog;
+    this.selectionDraft = normalizeSubmissionSelection(this.appContext.app?.latestSubmission ?? this.appContext.app?.submissionDefaults);
+  }
+
+  private handleSelectionChange = (event: CustomEvent): void => {
+    this.selectionDraft = normalizeSubmissionSelection(event.detail);
+  };
+
+  private buildPreviewContextText(selection: ReturnType<typeof normalizeSubmissionSelection>): string {
+    return buildSelectionPreviewText(this.catalog, selection);
   }
 
   private handleFileChange(event: Event): void {
@@ -426,24 +484,31 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
       dispatch(this, WarningEvent("Select an audio file before submitting."));
       return;
     }
-    if (!this.appContext.app || !this.instructionsEditor) {
+    if (!this.appContext.app || !this.instructionsEditor || !this.selectionEditor) {
       dispatch(this, WarningEvent("Instruction configuration is not ready yet."));
       return;
     }
+    const appConfig = this.appContext.app;
 
     this.submitting = true;
     try {
+      const submission = this.selectionEditor.getValue();
       const instructions = this.instructionsEditor.getValue();
       const updatedAppConfig = await updateAppConfigService.fetch({
-        ...this.appContext.app,
+        ...appConfig,
         instructions,
+        latestSubmission: submission,
       });
       this.appContext = {
         ...this.appContext,
         app: updatedAppConfig,
       };
       const instructionsText = this.instructionsEditor.getComputedInstructions();
-      this.latestJob = await createJobService.fetch({ file: this.selectedFile, instructionsText });
+      this.latestJob = await createJobService.fetch({
+        file: this.selectedFile,
+        instructionsText,
+        submission,
+      });
       this.recentJobs = [this.latestJob, ...this.recentJobs.filter((job) => job.id !== this.latestJob!.id)].slice(0, 4);
       dispatch(this, SuccessEvent("Job created and processing started."));
       dispatch(this, NavigationEvent({ path: `/jobs/${this.latestJob.id}` }));

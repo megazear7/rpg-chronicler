@@ -2,10 +2,12 @@ import z from "zod";
 import { AbstractService, NoPathParams, ServiceType } from "./main.service.js";
 import { HttpMethod } from "./type.http.js";
 import { JobIndex } from "./type.job.js";
+import { ContentfulSubmissionSelection } from "./type.contentful-context.js";
 
 export const CreateJobBodyParameters = z.object({
   file: z.any(),
   instructionsText: z.string().min(1),
+  submission: ContentfulSubmissionSelection,
 });
 export type CreateJobBodyParameters = z.infer<typeof CreateJobBodyParameters>;
 
@@ -19,6 +21,7 @@ export class CreateJobService extends AbstractService<CreateJobBodyParameters, N
     const formData = new FormData();
     formData.append("file", bodyParams.file);
     formData.append("instructionsText", bodyParams.instructionsText);
+    formData.append("submission", JSON.stringify(bodyParams.submission));
 
     const response = await fetch(this.path, {
       method: this.method.toUpperCase(),

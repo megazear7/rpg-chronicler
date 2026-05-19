@@ -12,17 +12,22 @@ import {
   artifactOrder,
   JobContentful,
   JobDetail,
+  JobImageState,
   JobLogEntry,
   JobLogLevel,
+  JobNotionState,
   JobIndex,
+  JobSongState,
   JobListResponse,
   JobStage,
   JobStageName,
   JobStageStatus,
+  jobStageKinds,
   jobStageLabels,
   jobStageOrder,
   JobStatus,
 } from "../shared/type.job.js";
+import { ContentfulSubmissionSnapshot } from "../shared/type.contentful-context.js";
 
 const JOBS_DIR = path.join(process.cwd(), "data", "jobs");
 
@@ -36,11 +41,40 @@ function createStages(): JobStage[] {
     JobStage.parse({
       name,
       label: jobStageLabels[name],
+      kind: jobStageKinds[name],
       status: JobStageStatus.enum.pending,
       progress: 0,
       updatedAt: timestamp,
     }),
   );
+}
+
+function createImageState(): JobImageState {
+  return {
+    status: "not_ready",
+    selectedAssetId: null,
+    generatedAssets: [],
+    lastGeneratedAt: null,
+  };
+}
+
+function createSongState(): JobSongState {
+  return {
+    status: "not_ready",
+    provider: "manual",
+    externalSongId: null,
+    songUrl: null,
+    selectedAt: null,
+  };
+}
+
+function createNotionState(): JobNotionState {
+  return {
+    status: "not_ready",
+    pageId: null,
+    pageUrl: null,
+    sentAt: null,
+  };
 }
 
 function createArtifacts(): ArtifactSummary[] {
@@ -100,10 +134,65 @@ function deriveCurrentStage(job: JobIndex): JobStageName | null {
   return pendingStage ? pendingStage.name : null;
 }
 
+function normalizeStages(stages: unknown): JobStage[] {
+  const existing = Array.isArray(stages) ? stages : [];
+  const stageMap = new Map<string, any>();
+  for (const stage of existing) {
+    if (stage && typeof stage === "object" && typeof (stage as { name?: string }).name === "string") {
+      stageMap.set((stage as { name: string }).name, stage);
+    }
+  }
+
+  const workflowHadStarted = existing.some((stage) => {
+    if (!stage || typeof stage !== "object") {
+      return false;
+    }
+
+    const candidate = stage as { status?: unknown; progress?: unknown };
+    return candidate.status === JobStageStatus.enum.running || candidate.status === JobStageStatus.enum.completed || typeof candidate.progress === "number" && candidate.progress > 0;
+  });
+
+  return jobStageOrder.map((name) => {
+    const base = stageMap.get(name);
+    const inferredConfigureContext = !base && name === "configure_context" && workflowHadStarted;
+    return JobStage.parse({
+      name,
+      label: jobStageLabels[name],
+      kind: jobStageKinds[name],
+      status: base?.status ?? (inferredConfigureContext ? JobStageStatus.enum.completed : JobStageStatus.enum.pending),
+      progress: base?.progress ?? (inferredConfigureContext ? 100 : 0),
+      updatedAt: base?.updatedAt ?? now(),
+      message: base?.message ?? (inferredConfigureContext ? "Legacy job imported before context selection existed." : undefined),
+    });
+  });
+}
+
+function normalizeJob(job: unknown): JobIndex {
+  const base = typeof job === "object" && job !== null ? (job as Record<string, unknown>) : {};
+  return JobIndex.parse({
+    ...base,
+    instructionsText: typeof base.instructionsText === "string" ? base.instructionsText : null,
+    submission: base.submission ?? null,
+    status: typeof base.status === "string" ? base.status : JobStatus.enum.queued,
+    totalProgress: typeof base.totalProgress === "number" ? base.totalProgress : 0,
+    createdAt: typeof base.createdAt === "string" ? base.createdAt : now(),
+    updatedAt: typeof base.updatedAt === "string" ? base.updatedAt : now(),
+    currentStage: base.currentStage ?? null,
+    errorMessage: typeof base.errorMessage === "string" ? base.errorMessage : null,
+    stages: normalizeStages(base.stages),
+    artifacts: Array.isArray(base.artifacts) ? base.artifacts : createArtifacts(),
+    image: base.image ?? createImageState(),
+    song: base.song ?? createSongState(),
+    contentful: base.contentful ?? createContentful(),
+    notion: base.notion ?? createNotionState(),
+  });
+}
+
 function hydrateJob(job: JobIndex): JobIndex {
+  const normalized = normalizeJob(job);
   const hydrated = JobIndex.parse({
-    ...job,
-    totalProgress: calculateTotalProgress(job.stages),
+    ...normalized,
+    totalProgress: calculateTotalProgress(normalized.stages),
     updatedAt: now(),
   });
   hydrated.status = deriveJobStatus(hydrated);
@@ -114,7 +203,8 @@ function hydrateJob(job: JobIndex): JobIndex {
 }
 
 function hasContentfulInputs(job: JobIndex): boolean {
-  return Boolean(job.contentful.title && job.contentful.summary && job.contentful.story && job.contentful.dmNotes);
+  const approvedImage = job.image.generatedAssets.find((asset) => asset.id === job.image.selectedAssetId && asset.approvedAt);
+  return Boolean(job.contentful.title && job.contentful.summary && job.contentful.story && job.contentful.dmNotes && approvedImage && job.song.songUrl);
 }
 
 async function ensureDir(dirPath: string): Promise<void> {
@@ -149,6 +239,14 @@ export function getJobArtifactsDir(jobId: string): string {
   return path.join(getJobDir(jobId), "artifacts");
 }
 
+export function getJobImagesDir(jobId: string): string {
+  return path.join(getJobDir(jobId), "images");
+}
+
+export function getJobImagePath(jobId: string, fileName: string): string {
+  return path.join(getJobImagesDir(jobId), fileName);
+}
+
 export function getArtifactDir(jobId: string, key: ArtifactKey): string {
   return path.join(getJobArtifactsDir(jobId), key);
 }
@@ -157,7 +255,7 @@ export function getArtifactVersionsDir(jobId: string, key: ArtifactKey): string 
   return path.join(getArtifactDir(jobId, key), "versions");
 }
 
-export async function createJob(fileName: string, instructionsText: string): Promise<JobIndex> {
+export async function createJob(fileName: string, instructionsText: string, submission: ContentfulSubmissionSnapshot | null): Promise<JobIndex> {
   const id = randomUUID();
   const timestamp = now();
   const job = hydrateJob(
@@ -165,6 +263,7 @@ export async function createJob(fileName: string, instructionsText: string): Pro
       id,
       file: fileName,
       instructionsText,
+      submission,
       status: JobStatus.enum.queued,
       totalProgress: 0,
       createdAt: timestamp,
@@ -173,13 +272,17 @@ export async function createJob(fileName: string, instructionsText: string): Pro
       errorMessage: null,
       stages: createStages(),
       artifacts: createArtifacts(),
+      image: createImageState(),
+      song: createSongState(),
       contentful: createContentful(),
+      notion: createNotionState(),
     }),
   );
 
   await ensureDir(getJobSourceDir(id));
   await ensureDir(getJobProgressDir(id));
   await ensureDir(getJobArtifactsDir(id));
+  await ensureDir(getJobImagesDir(id));
   await fs.writeFile(getJobLogsPath(id), JSON.stringify([], null, 2), "utf-8");
   await writeJob(job);
   await appendJobLog(id, "info", "upload", `Created job for ${fileName}.`);
@@ -195,7 +298,7 @@ export async function writeJob(job: JobIndex): Promise<JobIndex> {
 
 export async function readJob(jobId: string): Promise<JobIndex> {
   const file = await fs.readFile(getJobIndexPath(jobId), "utf-8");
-  return JobIndex.parse(JSON.parse(file));
+  return hydrateJob(normalizeJob(JSON.parse(file)));
 }
 
 export async function updateJob(jobId: string, updater: (job: JobIndex) => JobIndex | Promise<JobIndex>): Promise<JobIndex> {
@@ -483,6 +586,106 @@ export async function readJobDetail(jobId: string): Promise<JobDetail> {
     artifactVersions,
     logs,
   });
+}
+
+function extensionForMimeType(mimeType: string): string {
+  switch (mimeType) {
+    case "image/jpeg":
+      return ".jpg";
+    case "image/webp":
+      return ".webp";
+    default:
+      return ".png";
+  }
+}
+
+export async function saveGeneratedImageAsset(
+  jobId: string,
+  prompt: string,
+  buffer: Buffer,
+  mimeType: string,
+  source: "generated" | "uploaded" = "generated",
+) {
+  const id = randomUUID();
+  const createdAt = now();
+  const fileName = `${id}${extensionForMimeType(mimeType)}`;
+  await ensureDir(getJobImagesDir(jobId));
+  await fs.writeFile(getJobImagePath(jobId, fileName), buffer);
+
+  const asset = {
+    id,
+    createdAt,
+    prompt,
+    fileName,
+    mimeType,
+    source,
+    approvedAt: null,
+  };
+
+  await updateJob(jobId, (job) =>
+    JobIndex.parse({
+      ...job,
+      image: {
+        ...job.image,
+        status: "awaiting_approval",
+        selectedAssetId: job.image.selectedAssetId ?? id,
+        generatedAssets: [asset, ...job.image.generatedAssets],
+        lastGeneratedAt: createdAt,
+      },
+    }),
+  );
+  await appendJobLog(jobId, "success", "image_generation", `Saved ${source} image candidate.`);
+  return asset;
+}
+
+export async function approveImageAsset(jobId: string, assetId: string): Promise<JobDetail> {
+  await updateJob(jobId, (job) =>
+    JobIndex.parse({
+      ...job,
+      image: {
+        ...job.image,
+        status: "approved",
+        selectedAssetId: assetId,
+        generatedAssets: job.image.generatedAssets.map((asset) => ({
+          ...asset,
+          approvedAt: asset.id === assetId ? now() : null,
+        })),
+      },
+    }),
+  );
+  await updateStage(jobId, "image_approval", "completed", 100, "Image approved for publishing.");
+  return readJobDetail(jobId);
+}
+
+export async function selectSong(jobId: string, songUrl: string, provider: "manual" | "suno" = "manual", externalSongId?: string | null) {
+  const selectedAt = now();
+  const updated = await updateJob(jobId, (job) =>
+    JobIndex.parse({
+      ...job,
+      song: {
+        ...job.song,
+        status: "selected",
+        provider,
+        externalSongId: externalSongId ?? null,
+        songUrl,
+        selectedAt,
+      },
+    }),
+  );
+  await updateStage(jobId, "song_approval", "completed", 100, provider === "suno" ? "Suno song selected." : "Song selected.");
+  return updated;
+}
+
+export async function markNotionReady(jobId: string) {
+  return updateJob(jobId, (job) =>
+    JobIndex.parse({
+      ...job,
+      notion: {
+        ...job.notion,
+        status: job.contentful.entryId ? "ready" : job.notion.status,
+      },
+    }),
+  );
 }
 
 export async function listJobs(page: number, pageSize: number): Promise<JobListResponse> {

@@ -7,6 +7,9 @@ import { CreateJobBodyParameters, createJobService } from "../shared/service.cre
 import { RouteError } from "./main.errors.js";
 import { createJob, getJobSourceDir, readJob, updateStage } from "./util.job-store.js";
 import { startJobProcessing } from "./util.job-processing.js";
+import { getAppConfig, saveAppConfig } from "./util.app.js";
+import { buildSubmissionSnapshot } from "./util.contentful.js";
+import { normalizeSubmissionSelection } from "../shared/util.contentful-context.js";
 
 const incomingDir = path.join(process.cwd(), "data", "jobs", "_incoming");
 
@@ -31,12 +34,20 @@ export async function registerCreateJob(router: Router): Promise<void> {
       }
 
       const instructionsText = CreateJobBodyParameters.shape.instructionsText.parse(req.body.instructionsText);
+      const submission = normalizeSubmissionSelection(JSON.parse(req.body.submission ?? "{}"));
+      const submissionSnapshot = await buildSubmissionSnapshot(submission);
+      const appConfig = await getAppConfig();
+      await saveAppConfig({
+        ...appConfig,
+        latestSubmission: submission,
+      });
 
-      const job = await createJob(req.file.originalname, instructionsText);
+      const job = await createJob(req.file.originalname, instructionsText, submissionSnapshot);
       const extension = path.extname(req.file.originalname) || path.extname(req.file.filename) || ".mp3";
       const originalPath = path.join(getJobSourceDir(job.id), `original${extension.toLowerCase()}`);
       await fs.rename(req.file.path, originalPath);
       await updateStage(job.id, "upload", "completed", 100, "Upload stored.");
+      await updateStage(job.id, "configure_context", "completed", 100, "Adventure context captured.");
 
       await startJobProcessing(job.id, originalPath);
       res.json(await readJob(job.id));

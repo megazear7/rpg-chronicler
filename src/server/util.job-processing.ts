@@ -13,11 +13,14 @@ import {
   getJobProgressDir,
   getJobSourceDir,
   readJob,
+  saveGeneratedImageAsset,
   saveArtifactVersion,
   updateJob,
   updateStage,
 } from "./util.job-store.js";
 import { buildInstructionText, normalizeInstructionConfig } from "../shared/util.instructions.js";
+import { buildSubmissionContextText } from "./util.contentful.js";
+import { generateImageFromPrompt } from "./util.image.js";
 
 const NO_INSTRUCTIONS = "NO_INSTRUCTIONS";
 const WORDS_PER_MINUTE_OF_AUDIO = 4;
@@ -81,7 +84,8 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
   await generateTextArtifact(jobId, "summary", "summary", buildSummaryPrompt(bulletPoints, Math.ceil(baseLength * 0.4)), instructions);
   const story = await generateTextArtifact(jobId, "story", "story", buildStoryPrompt(bulletPoints, Math.ceil(baseLength * 1.75)), instructions);
   await generateTextArtifact(jobId, "title", "title", buildTitlePrompt(story), NO_INSTRUCTIONS);
-  await generateTextArtifact(jobId, "image_prompt", "imagePrompt", buildImagePrompt(story), NO_INSTRUCTIONS);
+  const imagePrompt = await generateTextArtifact(jobId, "image_prompt", "imagePrompt", buildImagePrompt(story), NO_INSTRUCTIONS);
+  await generateImageCandidate(jobId, imagePrompt);
   const lyrics = await generateTextArtifact(
     jobId,
     "lyrics",
@@ -90,9 +94,17 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     NO_INSTRUCTIONS,
   );
   await generateTextArtifact(jobId, "song_prompt", "songPrompt", buildSongPrompt(lyrics, songExample, songMod), NO_INSTRUCTIONS);
-
-  await updateStage(jobId, "contentful", "completed", 100, "Contentful payload ready for approval.");
-  await appendJobLog(jobId, "success", "contentful", "All artifacts generated and Contentful preview is ready.");
+  await updateJob(jobId, (job) => ({
+    ...job,
+    song: {
+      ...job.song,
+      status: "awaiting_selection",
+    },
+  }));
+  await updateStage(jobId, "song_approval", "running", 50, "Review lyrics and song prompt, then choose a song.");
+  await updateStage(jobId, "contentful", "pending", 0, "Approve the image and song, then send the event to Contentful.");
+  await updateStage(jobId, "notion", "pending", 0, "Send DM notes to Notion after the event is published.");
+  await appendJobLog(jobId, "success", "song_prompt", "AI processing is complete. Human review steps are now available.");
   await updateJob(jobId, (job) => ({
     ...job,
     errorMessage: null,
@@ -101,16 +113,35 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
 
 async function resolveJobInstructions(jobId: string): Promise<string> {
   const job = await readJob(jobId);
+  const contextText = buildSubmissionContextText(job.submission);
   if (job.instructionsText && job.instructionsText.trim().length > 0) {
-    return job.instructionsText;
+    return [job.instructionsText.trim(), contextText].filter((section) => section.trim().length > 0).join("\n\n");
   }
 
   try {
     const appConfig = await getAppConfig();
-    return buildInstructionText(normalizeInstructionConfig(appConfig.instructions));
+    return [buildInstructionText(normalizeInstructionConfig(appConfig.instructions)), contextText]
+      .filter((section) => section.trim().length > 0)
+      .join("\n\n");
   } catch {
-    return DEFAULT_INSTRUCTIONS;
+    return [DEFAULT_INSTRUCTIONS, contextText].filter((section) => section.trim().length > 0).join("\n\n");
   }
+}
+
+async function generateImageCandidate(jobId: string, prompt: string): Promise<void> {
+  await updateJob(jobId, (job) => ({
+    ...job,
+    image: {
+      ...job.image,
+      status: "generating",
+    },
+  }));
+  await updateStage(jobId, "image_generation", "running", 25, "Generating an image candidate from the image prompt.");
+  const { buffer, mimeType } = await generateImageFromPrompt(prompt);
+  const asset = await saveGeneratedImageAsset(jobId, prompt, buffer, mimeType, "generated");
+  await updateStage(jobId, "image_generation", "completed", 100, "Generated an image candidate.");
+  await updateStage(jobId, "image_approval", "running", 50, "Review the image prompt and approve an image candidate.");
+  await appendJobLog(jobId, "success", "image_generation", `Image candidate ${asset.fileName} is ready for review.`);
 }
 
 async function generateTextArtifact(

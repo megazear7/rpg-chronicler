@@ -39,6 +39,7 @@
   "homepage": "https://github.com/megazear7/rpg-chronicler#readme",
   "dependencies": {
     "@lit/context": "^1.1.6",
+    "@notionhq/client": "^5.21.0",
     "commander": "^14.0.2",
     "contentful-management": "^11.63.1",
     "dotenv": "^17.2.3",

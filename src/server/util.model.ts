@@ -25,3 +25,12 @@ export async function loadAudioClient(modelConfigs: ModelConfigs): Promise<OpenA
     timeout: ONE_DAY_IN_MS,
   });
 }
+
+export async function loadImageClient(modelConfigs: ModelConfigs): Promise<OpenAI> {
+  const imageConfig = modelConfigs.image ?? modelConfigs.text;
+  return new OpenAI({
+    apiKey: process.env[`${imageConfig.name.toUpperCase()}${MODEL_ENV_POSTFIX}`],
+    baseURL: imageConfig.endpoint,
+    timeout: ONE_DAY_IN_MS,
+  });
+}

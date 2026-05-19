@@ -5,6 +5,8 @@ import { exampleGenerationController } from "./controller.example-generation.js"
 import { registerExampleDownload } from "./controller.example-download.js";
 import { registerUploadReference } from "./controller.example-upload.js";
 import { getAppConfigController } from "./controller.get-app-config.js";
+import { getContentfulCatalogController } from "./controller.get-contentful-catalog.js";
+import { searchContentfulEventsController } from "./controller.search-contentful-events.js";
 import { updateAppConfigController } from "./controller.update-app-config.js";
 import { registerCreateJob } from "./controller.create-job.js";
 import { listJobsController } from "./controller.list-jobs.js";
@@ -14,13 +16,20 @@ import { getArtifactController } from "./controller.get-artifact.js";
 import { updateArtifactController } from "./controller.update-artifact.js";
 import { activateArtifactVersionController } from "./controller.activate-artifact-version.js";
 import { deleteArtifactVersionController } from "./controller.delete-artifact-version.js";
+import { generateJobImageController } from "./controller.generate-job-image.js";
+import { approveJobImageController } from "./controller.approve-job-image.js";
+import { selectJobSongController } from "./controller.select-job-song.js";
 import { sendJobToContentfulController } from "./controller.send-job-to-contentful.js";
+import { sendJobToNotionController } from "./controller.send-job-to-notion.js";
+import { registerJobImages } from "./controller.job-images.js";
 
 const router = express.Router();
 
 clientController.register(router);
 healthController.register(router);
 getAppConfigController.register(router);
+getContentfulCatalogController.register(router);
+searchContentfulEventsController.register(router);
 updateAppConfigController.register(router);
 exampleGenerationController.register(router);
 registerUploadReference(router);
@@ -32,7 +41,12 @@ getArtifactController.register(router);
 updateArtifactController.register(router);
 activateArtifactVersionController.register(router);
 deleteArtifactVersionController.register(router);
+generateJobImageController.register(router);
+approveJobImageController.register(router);
+selectJobSongController.register(router);
 sendJobToContentfulController.register(router);
+sendJobToNotionController.register(router);
+registerJobImages(router);
 registerJobStreams(router);
 
 export { router };

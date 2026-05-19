@@ -26,5 +26,6 @@ export type ModelTypeConfig = z.infer<typeof ModelTypeConfig>;
 export const ModelConfigs = z.object({
   text: ModelTypeConfig,
   audio: ModelTypeConfig,
+  image: ModelTypeConfig.optional(),
 });
 export type ModelConfigs = z.infer<typeof ModelConfigs>;

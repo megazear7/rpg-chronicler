@@ -1,36 +1,20 @@
 import { css, html, TemplateResult } from "lit";
-import { customElement, query, state } from "lit/decorators.js";
+import { customElement, state } from "lit/decorators.js";
 import { globalStyles } from "./styles.global.js";
 import { RpgChroniclerAppProvider } from "./provider.app.js";
-import { createJobService } from "../shared/service.create-job.js";
-import { getContentfulCatalogService } from "../shared/service.get-contentful-catalog.js";
 import { listJobsService } from "../shared/service.list-jobs.js";
-import { ContentfulCatalog } from "../shared/type.contentful-context.js";
 import { JobIndex } from "../shared/type.job.js";
 import { dispatch } from "./util.events.js";
-import { SuccessEvent } from "./event.success.js";
 import { WarningEvent } from "./event.warning.js";
 import { NavigationEvent } from "./event.navigation.js";
 import { audioIcon, rightArrowIcon } from "./icons.js";
-import { normalizeInstructionConfig } from "../shared/util.instructions.js";
-import { updateAppConfigService } from "../shared/service.update-app-config.js";
-import { buildSelectionPreviewText, normalizeSubmissionSelection } from "../shared/util.contentful-context.js";
-import "./component.instructions-editor.js";
-import "./component.contentful-selection-editor.js";
-import { RpgChroniclerInstructionsEditor } from "./component.instructions-editor.js";
-import { RpgChroniclerContentfulSelectionEditor } from "./component.contentful-selection-editor.js";
+import { setPendingFile } from "./util.pending-file.js";
 
 @customElement("rpg-chronicler-home-page")
 export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
-  @state() private selectedFile: File | null = null;
-  @state() private submitting = false;
   @state() private latestJob: JobIndex | null = null;
   @state() private recentJobs: JobIndex[] = [];
   @state() private dragActive = false;
-  @state() private catalog: ContentfulCatalog | null = null;
-  @state() private selectionDraft = normalizeSubmissionSelection();
-  @query("rpg-chronicler-instructions-editor") private instructionsEditor?: RpgChroniclerInstructionsEditor;
-  @query("rpg-chronicler-contentful-selection-editor") private selectionEditor?: RpgChroniclerContentfulSelectionEditor;
 
   static override styles = [
     globalStyles,
@@ -69,14 +53,6 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
         font-size: var(--font-small);
         opacity: 0.7;
         margin-bottom: var(--size-small);
-      }
-
-      .actions {
-        display: flex;
-        gap: var(--size-medium);
-        flex-wrap: wrap;
-        align-items: center;
-        margin-top: var(--size-medium);
       }
 
       .upload-field {
@@ -177,11 +153,6 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
       .job-meta {
         display: grid;
         gap: var(--size-small);
-      }
-
-      .review-panel {
-        display: grid;
-        gap: var(--size-large);
       }
 
       .workflow-list {
@@ -287,8 +258,6 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
   ];
 
   override render(): TemplateResult {
-    const currentSelection = this.selectionDraft;
-    const previewContextText = this.buildPreviewContextText(currentSelection);
     return html`
       <main>
         <div class="shell">
@@ -312,41 +281,7 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
                 </div>
                 <input id="source-audio-input" class="file-input" type="file" accept=".mp3,.m4a,audio/mpeg,audio/mp4,audio/x-m4a" @change=${this.handleFileChange} />
                 <label class="browser-link" for="source-audio-input">Open file browser</label>
-                <div class="actions">
-                  <span>${this.selectedFile ? this.selectedFile.name : "No file selected"}</span>
-                </div>
               </div>
-
-              ${this.selectedFile
-                ? html`
-                    <section class="panel review-panel">
-                      <div class="eyebrow">Step 2</div>
-                      <h2>Configure the adventure context</h2>
-                      <p>These options come directly from Contentful and prefill from the most recent submission whenever one exists.</p>
-                      <rpg-chronicler-contentful-selection-editor
-                        .catalog=${this.catalog}
-                        .selection=${currentSelection}
-                        @selection-change=${this.handleSelectionChange}>
-                      </rpg-chronicler-contentful-selection-editor>
-                    </section>
-
-                    <section class="panel review-panel">
-                      <div class="eyebrow">Step 3</div>
-                      <h2>Adjust instructions before creating the job</h2>
-                      <p>The opening paragraph is locked here. You can edit it from the workflow configuration page.</p>
-                      <rpg-chronicler-instructions-editor
-                        .config=${normalizeInstructionConfig(this.appContext.app?.instructions)}
-                        .previewContextText=${previewContextText}
-                        .editableIntro=${false}></rpg-chronicler-instructions-editor>
-                      <div class="actions">
-                        <a class="browser-link" href="/instructions">Open workflow configuration</a>
-                        <button ?disabled=${this.submitting} @click=${this.handleSubmit}>
-                          ${this.submitting ? "Creating job..." : "Approve setup and create job"}
-                        </button>
-                      </div>
-                    </section>
-                  `
-                : html``}
             </article>
 
             <article class="panel">
@@ -411,18 +346,8 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
 
   override async load(): Promise<void> {
     await super.load();
-    const [jobs, catalog] = await Promise.all([listJobsService.fetch({ page: "1", pageSize: "4" }), getContentfulCatalogService.fetch()]);
+    const jobs = await listJobsService.fetch({ page: "1", pageSize: "4" });
     this.recentJobs = jobs.items;
-    this.catalog = catalog;
-    this.selectionDraft = normalizeSubmissionSelection(this.appContext.app?.latestSubmission ?? this.appContext.app?.submissionDefaults);
-  }
-
-  private handleSelectionChange = (event: CustomEvent): void => {
-    this.selectionDraft = normalizeSubmissionSelection(event.detail);
-  };
-
-  private buildPreviewContextText(selection: ReturnType<typeof normalizeSubmissionSelection>): string {
-    return buildSelectionPreviewText(this.catalog, selection);
   }
 
   private handleFileChange(event: Event): void {
@@ -457,7 +382,6 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
 
   private setSelectedFile(file: File | null): void {
     if (!file) {
-      this.selectedFile = null;
       return;
     }
 
@@ -476,47 +400,7 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
       return;
     }
 
-    this.selectedFile = file;
-  }
-
-  private async handleSubmit(): Promise<void> {
-    if (!this.selectedFile) {
-      dispatch(this, WarningEvent("Select an audio file before submitting."));
-      return;
-    }
-    if (!this.appContext.app || !this.instructionsEditor || !this.selectionEditor) {
-      dispatch(this, WarningEvent("Instruction configuration is not ready yet."));
-      return;
-    }
-    const appConfig = this.appContext.app;
-
-    this.submitting = true;
-    try {
-      const submission = this.selectionEditor.getValue();
-      const instructions = this.instructionsEditor.getValue();
-      const updatedAppConfig = await updateAppConfigService.fetch({
-        ...appConfig,
-        instructions,
-        latestSubmission: submission,
-      });
-      this.appContext = {
-        ...this.appContext,
-        app: updatedAppConfig,
-      };
-      const instructionsText = this.instructionsEditor.getComputedInstructions();
-      this.latestJob = await createJobService.fetch({
-        file: this.selectedFile,
-        instructionsText,
-        submission,
-      });
-      this.recentJobs = [this.latestJob, ...this.recentJobs.filter((job) => job.id !== this.latestJob!.id)].slice(0, 4);
-      dispatch(this, SuccessEvent("Job created and processing started."));
-      dispatch(this, NavigationEvent({ path: `/jobs/${this.latestJob.id}` }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to submit job.";
-      dispatch(this, WarningEvent(message));
-    } finally {
-      this.submitting = false;
-    }
+    setPendingFile(file);
+    dispatch(this, NavigationEvent({ path: "/adventure-setup" }));
   }
 }

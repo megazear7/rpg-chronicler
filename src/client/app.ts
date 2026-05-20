@@ -11,6 +11,7 @@ import { NavigationEventName } from "./event.navigation.js";
 import { SuccessEventName } from "./event.success.js";
 import { WarningEventName } from "./event.warning.js";
 import "./page.home.js";
+import "./page.adventure-setup.js";
 import "./page.instructions.js";
 import "./page.jobs.js";
 import "./page.job.js";
@@ -81,6 +82,11 @@ export class RpgChroniclerApp extends LitElement {
               return html`
                 <div class="app-bar"></div>
                 <rpg-chronicler-home-page></rpg-chronicler-home-page>
+              `;
+            case RouteName.enum.adventure_setup:
+              return html`
+                <div class="app-bar"></div>
+                <rpg-chronicler-adventure-setup-page></rpg-chronicler-adventure-setup-page>
               `;
             case RouteName.enum.instructions:
               return html`

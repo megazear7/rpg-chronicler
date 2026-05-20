@@ -13,10 +13,17 @@ export class SendJobToContentfulController extends AbstractController<NoBodyPara
     if (current.contentful.entryId || current.contentful.entryUrl || current.contentful.status === "sent") {
       throw new RouteError(400, "This job has already been sent to Contentful.");
     }
-    if (!current.contentful.title || !current.contentful.summary || !current.contentful.story || !current.contentful.dmNotes) {
+    if (
+      !current.contentful.title ||
+      !current.contentful.summary ||
+      !current.contentful.story ||
+      !current.contentful.dmNotes
+    ) {
       throw new RouteError(400, "Title, summary, story, and DM notes must be available before sending to Contentful.");
     }
-    const selectedImage = current.image.generatedAssets.find((asset) => asset.id === current.image.selectedAssetId && asset.approvedAt);
+    const selectedImage = current.image.generatedAssets.find(
+      (asset) => asset.id === current.image.selectedAssetId && asset.approvedAt,
+    );
     if (!selectedImage) {
       throw new RouteError(400, "Approve an image before sending this event to Contentful.");
     }

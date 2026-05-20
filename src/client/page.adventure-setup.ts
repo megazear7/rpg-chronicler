@@ -37,23 +37,25 @@ export class RpgChroniclerAdventureSetupPage extends RpgChroniclerAppProvider {
         gap: var(--size-large);
       }
 
-      .panel {
-        background:
-          radial-gradient(circle at top right, color-mix(in srgb, var(--color-accent) 18%, transparent), transparent 38%),
-          linear-gradient(180deg, color-mix(in srgb, var(--color-secondary-surface) 96%, white), var(--color-secondary-surface));
-        border-radius: 32px;
-        padding: var(--size-large);
-        box-shadow: var(--shadow-hover);
-        border: 1px solid color-mix(in srgb, var(--color-primary-text) 8%, transparent);
+      .step {
         display: grid;
-        gap: var(--size-medium);
+        gap: var(--size-tiny);
       }
 
       .eyebrow {
+        margin-top: var(--size-large);
         text-transform: uppercase;
         letter-spacing: 0.16em;
         font-size: var(--font-small);
         opacity: 0.7;
+      }
+
+      h2 {
+        margin-top: 0;
+      }
+
+      p {
+        margin-top: 0;
       }
 
       .file-chip {
@@ -136,13 +138,13 @@ export class RpgChroniclerAdventureSetupPage extends RpgChroniclerAppProvider {
 
     return html`
       <main>
-        <section class="panel">
+        <section class="step">
           <div><a href="/">${leftArrowIcon} Back to home</a></div>
           <h1>Set up adventure</h1>
           <div class="file-chip">${this.pendingFile.name}</div>
         </section>
 
-        <section class="panel">
+        <section class="step">
           <div class="eyebrow">Step 1</div>
           <h2>Configure the adventure context</h2>
           <p>These options come directly from Contentful and prefill from your workflow configuration defaults.</p>
@@ -150,20 +152,18 @@ export class RpgChroniclerAdventureSetupPage extends RpgChroniclerAppProvider {
             .catalog=${this.catalog}
             .selection=${this.selectionDraft}
             .searchBeforeListingQueries=${["locations", "npcs", "previousEvents"]}
-            @selection-change=${this.handleSelectionChange}>
-          </rpg-chronicler-contentful-selection-editor>
+            @selection-change=${this.handleSelectionChange}></rpg-chronicler-contentful-selection-editor>
         </section>
 
-        <section class="panel">
+        <section class="step">
           <div class="eyebrow">Step 2</div>
           <h2>Adjust instructions before creating the job</h2>
-          <p>The opening paragraph is locked here. You can edit it from the workflow configuration page.</p>
+          <p>Adjust the reusable instructions here before creating the job, including the opening paragraph.</p>
           <rpg-chronicler-instructions-editor
             .config=${normalizeInstructionConfig(this.appContext.app?.instructions)}
             .previewContextText=${previewContextText}
-            .editableIntro=${false}></rpg-chronicler-instructions-editor>
+            .editableIntro=${true}></rpg-chronicler-instructions-editor>
           <div class="actions">
-            <a class="browser-link" href="/instructions">Open workflow configuration</a>
             <button ?disabled=${this.submitting} @click=${this.handleSubmit}>
               ${this.submitting ? "Creating job..." : "Approve setup and create job"}
             </button>

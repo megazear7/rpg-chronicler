@@ -8,7 +8,12 @@ import {
   ContentfulSubmissionSelection,
   ContentfulSubmissionSnapshot,
 } from "../shared/type.contentful-context.js";
-import { formatCharacterAssignmentLine, normalizeSubmissionSelection, resolveSelectedCharacterAssignments, resolveSelectedPlayers } from "../shared/util.contentful-context.js";
+import {
+  formatCharacterAssignmentLine,
+  normalizeSubmissionSelection,
+  resolveSelectedCharacterAssignments,
+  resolveSelectedPlayers,
+} from "../shared/util.contentful-context.js";
 
 const { createClient } = pkg;
 const LOCALE = "en-US";
@@ -29,11 +34,24 @@ const MONTH_NAMES = [
 
 type ContentfulEnvironment = Awaited<ReturnType<Awaited<ReturnType<typeof getContentfulSpace>>["getEnvironment"]>>;
 
-function getTextField(fields: Record<string, any>, key: string): string | null {
-  return fields[key]?.[LOCALE] ?? null;
+type LocalizedValue<T> = Partial<Record<typeof LOCALE, T>>;
+type ContentfulFields = Record<string, LocalizedValue<unknown> | undefined>;
+type ContentfulEntryLike = {
+  sys: { id: string };
+  fields: ContentfulFields;
+};
+type RichTextNode = {
+  value?: unknown;
+  content?: unknown;
+  nodeType?: unknown;
+};
+
+function getTextField(fields: ContentfulFields, key: string): string | null {
+  const value = fields[key]?.[LOCALE];
+  return typeof value === "string" ? value : null;
 }
 
-function getNumberField(fields: Record<string, any>, key: string): number | null {
+function getNumberField(fields: ContentfulFields, key: string): number | null {
   const value = fields[key]?.[LOCALE];
   return typeof value === "number" ? value : null;
 }
@@ -53,38 +71,46 @@ function getLinkIds(values: unknown): string[] {
   return values.map((value) => getLinkId(value)).filter((value): value is string => Boolean(value));
 }
 
-function richTextToPlainText(document: any): string | null {
+function richTextToPlainText(document: unknown): string | null {
   if (!document || typeof document !== "object") {
     return null;
   }
   const lines: string[] = [];
 
-  const visit = (node: any): void => {
+  const visit = (node: unknown): void => {
     if (!node || typeof node !== "object") {
       return;
     }
-    if (typeof node.value === "string" && node.value.trim().length > 0) {
-      lines.push(node.value.trim());
+    const richTextNode = node as RichTextNode;
+    if (typeof richTextNode.value === "string" && richTextNode.value.trim().length > 0) {
+      lines.push(richTextNode.value.trim());
     }
-    if (Array.isArray(node.content)) {
-      for (const child of node.content) {
+    if (Array.isArray(richTextNode.content)) {
+      for (const child of richTextNode.content) {
         visit(child);
       }
-      if (node.nodeType === "paragraph") {
+      if (richTextNode.nodeType === "paragraph") {
         lines.push("\n");
       }
     }
   };
 
   visit(document);
-  return lines.join(" ").replace(/\s+\n/g, "\n").replace(/\n\s+/g, "\n").replace(/\s{2,}/g, " ").trim() || null;
+  return (
+    lines
+      .join(" ")
+      .replace(/\s+\n/g, "\n")
+      .replace(/\n\s+/g, "\n")
+      .replace(/\s{2,}/g, " ")
+      .trim() || null
+  );
 }
 
 function includesQuery(value: string | null | undefined, query: string): boolean {
   return (value ?? "").toLowerCase().includes(query);
 }
 
-async function getContentfulSpace() {
+async function getContentfulSpace(): Promise<Awaited<ReturnType<ReturnType<typeof createClient>["getSpace"]>>> {
   const client = createClient({
     accessToken: env.CONTENTFUL_MANAGEMENT_API_KEY,
   });
@@ -96,8 +122,8 @@ async function getContentfulEnvironment(): Promise<ContentfulEnvironment> {
   return space.getEnvironment(env.CONTENTFUL_ENVIRONMENT_ID);
 }
 
-async function listEntries(environment: ContentfulEnvironment, contentType: string) {
-  const items: any[] = [];
+async function listEntries(environment: ContentfulEnvironment, contentType: string): Promise<ContentfulEntryLike[]> {
+  const items: ContentfulEntryLike[] = [];
   let skip = 0;
   const limit = 200;
   while (true) {
@@ -111,12 +137,16 @@ async function listEntries(environment: ContentfulEnvironment, contentType: stri
   return items;
 }
 
-function mapEventReference(entry: any): ContentfulEventReference {
+function mapEventReference(entry: ContentfulEntryLike): ContentfulEventReference {
   return ContentfulEventReference.parse({
     id: entry.sys.id,
     type: "event",
     title: getTextField(entry.fields, "title") ?? "Untitled event",
-    subtitle: [getNumberField(entry.fields, "year"), getTextField(entry.fields, "month"), getNumberField(entry.fields, "day")]
+    subtitle: [
+      getNumberField(entry.fields, "year"),
+      getTextField(entry.fields, "month"),
+      getNumberField(entry.fields, "day"),
+    ]
       .filter((value) => value !== null)
       .join(" "),
     description: richTextToPlainText(entry.fields.description?.[LOCALE]),
@@ -179,7 +209,11 @@ function formatMonthLabel(monthIndex: number): string {
   return `${monthIndex + 1}: ${MONTH_NAMES[monthIndex]}`;
 }
 
-function nextCalendarDay(input: { year: number; month: string; day: number }): { year: number; month: string; day: number } {
+function nextCalendarDay(input: { year: number; month: string; day: number }): {
+  year: number;
+  month: string;
+  day: number;
+} {
   const monthIndex = parseMonthIndex(input.month);
   if (monthIndex === null) {
     return input;
@@ -229,10 +263,15 @@ async function deriveEventDate(
     };
   }
 
-  const [adventure, allEvents] = await Promise.all([environment.getEntry(adventureId), listEntries(environment, "event")]);
+  const [adventure, allEvents] = await Promise.all([
+    environment.getEntry(adventureId),
+    listEntries(environment, "event"),
+  ]);
   const reverseLinkedIds = new Set(getLinkIds(adventure.fields.events?.[LOCALE]));
   const adventureEvents = allEvents
-    .filter((entry) => getLinkId(entry.fields.adventure?.[LOCALE]) === adventureId || reverseLinkedIds.has(entry.sys.id))
+    .filter(
+      (entry) => getLinkId(entry.fields.adventure?.[LOCALE]) === adventureId || reverseLinkedIds.has(entry.sys.id),
+    )
     .map((entry) => ({
       year: getNumberField(entry.fields, "year"),
       month: getTextField(entry.fields, "month"),
@@ -242,7 +281,9 @@ async function deriveEventDate(
 
   const sortedAdventureEvents = adventureEvents.sort((left, right) => compareEventDates(left, right));
   const latestEvent = sortedAdventureEvents.length > 0 ? sortedAdventureEvents[sortedAdventureEvents.length - 1] : null;
-  const derived = latestEvent ? nextCalendarDay({ year: latestEvent.year!, month: latestEvent.month!, day: latestEvent.day! }) : null;
+  const derived = latestEvent
+    ? nextCalendarDay({ year: latestEvent.year!, month: latestEvent.month!, day: latestEvent.day! })
+    : null;
 
   return {
     year: explicitYear ?? derived?.year ?? null,
@@ -372,7 +413,11 @@ async function uploadContentfulImage(
   };
 }
 
-async function appendEventToAdventure(environment: ContentfulEnvironment, adventureId: string, eventId: string): Promise<void> {
+async function appendEventToAdventure(
+  environment: ContentfulEnvironment,
+  adventureId: string,
+  eventId: string,
+): Promise<void> {
   const adventure = await environment.getEntry(adventureId);
   const existing = getLinkIds(adventure.fields.events?.[LOCALE]);
   if (existing.includes(eventId)) {
@@ -448,7 +493,9 @@ export async function listContentfulCatalog(): Promise<ContentfulCatalog> {
   });
 }
 
-export async function buildSubmissionSnapshot(selectionInput: ContentfulSubmissionSelection): Promise<ContentfulSubmissionSnapshot> {
+export async function buildSubmissionSnapshot(
+  selectionInput: ContentfulSubmissionSelection,
+): Promise<ContentfulSubmissionSnapshot> {
   const selection = normalizeSubmissionSelection(selectionInput);
   const catalog = await listContentfulCatalog();
 
@@ -480,7 +527,9 @@ export function buildSubmissionContextText(snapshot: ContentfulSubmissionSnapsho
   }
 
   const sections: string[] = [];
-  const dateParts = [snapshot.selection.year, snapshot.selection.month, snapshot.selection.day].filter((value) => value !== null && value !== "");
+  const dateParts = [snapshot.selection.year, snapshot.selection.month, snapshot.selection.day].filter(
+    (value) => value !== null && value !== "",
+  );
   if (dateParts.length > 0) {
     sections.push(`In-world event date: ${dateParts.join(" ")}`);
   }
@@ -494,25 +543,33 @@ export function buildSubmissionContextText(snapshot: ContentfulSubmissionSnapsho
     sections.push(`Players: ${snapshot.players.map((entry) => entry.title).join(", ")}`);
   }
   if (snapshot.characterAssignments.length > 0) {
-    sections.push([
-      "Characters:",
-      ...snapshot.characterAssignments.map(({ character, player }) => formatCharacterAssignmentLine(character, player)),
-    ].join("\n"));
+    sections.push(
+      [
+        "Characters:",
+        ...snapshot.characterAssignments.map(({ character, player }) =>
+          formatCharacterAssignmentLine(character, player),
+        ),
+      ].join("\n"),
+    );
   }
   if (snapshot.locations.length > 0) {
     sections.push(["Relevant locations:", ...snapshot.locations.map((entry) => ` - ${entry.title}`)].join("\n"));
   }
   if (snapshot.npcs.length > 0) {
-    sections.push([
-      "Relevant NPCs:",
-      ...snapshot.npcs.map((entry) => ` - ${entry.title}${entry.subtitle ? `: ${entry.subtitle}` : ""}`),
-    ].join("\n"));
+    sections.push(
+      [
+        "Relevant NPCs:",
+        ...snapshot.npcs.map((entry) => ` - ${entry.title}${entry.subtitle ? `: ${entry.subtitle}` : ""}`),
+      ].join("\n"),
+    );
   }
   if (snapshot.previousEvents.length > 0) {
-    sections.push([
-      "Previous events in this adventure:",
-      ...snapshot.previousEvents.map((entry) => ` - ${entry.title}${entry.summary ? `: ${entry.summary}` : ""}`),
-    ].join("\n"));
+    sections.push(
+      [
+        "Previous events in this adventure:",
+        ...snapshot.previousEvents.map((entry) => ` - ${entry.title}${entry.summary ? `: ${entry.summary}` : ""}`),
+      ].join("\n"),
+    );
   }
 
   return sections.join("\n\n").trim();

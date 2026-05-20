@@ -79,12 +79,42 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
   await saveArtifactVersion(jobId, "bulletPoints", bulletPoints, "generated");
   await updateStage(jobId, "bullet_points", "completed", 100, "Bullet points generated.");
 
-  await generateTextArtifact(jobId, "play_by_play", "playByPlay", buildPlayByPlayPrompt(bulletPoints, Math.ceil(baseLength * 0.8)), instructions);
-  await generateTextArtifact(jobId, "dm_notes", "dmNotes", buildDmNotesPrompt(bulletPoints, Math.ceil(baseLength * 0.6)), instructions);
-  await generateTextArtifact(jobId, "summary", "summary", buildSummaryPrompt(bulletPoints, Math.ceil(baseLength * 0.4)), instructions);
-  const story = await generateTextArtifact(jobId, "story", "story", buildStoryPrompt(bulletPoints, Math.ceil(baseLength * 1.75)), instructions);
+  await generateTextArtifact(
+    jobId,
+    "play_by_play",
+    "playByPlay",
+    buildPlayByPlayPrompt(bulletPoints, Math.ceil(baseLength * 0.8)),
+    instructions,
+  );
+  await generateTextArtifact(
+    jobId,
+    "dm_notes",
+    "dmNotes",
+    buildDmNotesPrompt(bulletPoints, Math.ceil(baseLength * 0.6)),
+    instructions,
+  );
+  await generateTextArtifact(
+    jobId,
+    "summary",
+    "summary",
+    buildSummaryPrompt(bulletPoints, Math.ceil(baseLength * 0.4)),
+    instructions,
+  );
+  const story = await generateTextArtifact(
+    jobId,
+    "story",
+    "story",
+    buildStoryPrompt(bulletPoints, Math.ceil(baseLength * 1.75)),
+    instructions,
+  );
   await generateTextArtifact(jobId, "title", "title", buildTitlePrompt(story), NO_INSTRUCTIONS);
-  const imagePrompt = await generateTextArtifact(jobId, "image_prompt", "imagePrompt", buildImagePrompt(story), NO_INSTRUCTIONS);
+  const imagePrompt = await generateTextArtifact(
+    jobId,
+    "image_prompt",
+    "imagePrompt",
+    buildImagePrompt(story),
+    NO_INSTRUCTIONS,
+  );
   await generateImageCandidate(jobId, imagePrompt);
   const lyrics = await generateTextArtifact(
     jobId,
@@ -93,7 +123,13 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     buildLyricsPrompt(story, Math.floor(Math.random() * 3) + 2),
     NO_INSTRUCTIONS,
   );
-  await generateTextArtifact(jobId, "song_prompt", "songPrompt", buildSongPrompt(lyrics, songExample, songMod), NO_INSTRUCTIONS);
+  await generateTextArtifact(
+    jobId,
+    "song_prompt",
+    "songPrompt",
+    buildSongPrompt(lyrics, songExample, songMod),
+    NO_INSTRUCTIONS,
+  );
   await updateJob(jobId, (job) => ({
     ...job,
     song: {
@@ -102,9 +138,20 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     },
   }));
   await updateStage(jobId, "song_approval", "running", 50, "Review lyrics and song prompt, then choose a song.");
-  await updateStage(jobId, "contentful", "pending", 0, "Approve the image and song, then send the event to Contentful.");
+  await updateStage(
+    jobId,
+    "contentful",
+    "pending",
+    0,
+    "Approve the image and song, then send the event to Contentful.",
+  );
   await updateStage(jobId, "notion", "pending", 0, "Send DM notes to Notion after the event is published.");
-  await appendJobLog(jobId, "success", "song_prompt", "AI processing is complete. Human review steps are now available.");
+  await appendJobLog(
+    jobId,
+    "success",
+    "song_prompt",
+    "AI processing is complete. Human review steps are now available.",
+  );
   await updateJob(jobId, (job) => ({
     ...job,
     errorMessage: null,
@@ -146,24 +193,8 @@ async function generateImageCandidate(jobId: string, prompt: string): Promise<vo
 
 async function generateTextArtifact(
   jobId: string,
-  stageName:
-    | "play_by_play"
-    | "dm_notes"
-    | "summary"
-    | "story"
-    | "title"
-    | "image_prompt"
-    | "lyrics"
-    | "song_prompt",
-  artifactKey:
-    | "playByPlay"
-    | "dmNotes"
-    | "summary"
-    | "story"
-    | "title"
-    | "imagePrompt"
-    | "lyrics"
-    | "songPrompt",
+  stageName: "play_by_play" | "dm_notes" | "summary" | "story" | "title" | "image_prompt" | "lyrics" | "song_prompt",
+  artifactKey: "playByPlay" | "dmNotes" | "summary" | "story" | "title" | "imagePrompt" | "lyrics" | "songPrompt",
   prompt: string,
   instructions: string,
 ): Promise<string> {
@@ -271,7 +302,10 @@ async function sendAudioMessage(audioFilePath: string, instructions: string, pro
   return response.choices[0]?.message?.content ?? "";
 }
 
-async function prepareAudioFile(jobId: string, sourcePath: string): Promise<{ processedFilePath: string; processedFileName: string }> {
+async function prepareAudioFile(
+  jobId: string,
+  sourcePath: string,
+): Promise<{ processedFilePath: string; processedFileName: string }> {
   const sourceDir = getJobSourceDir(jobId);
   const audioBuffer = await fs.readFile(sourcePath);
   if (audioBuffer.length === 0) {

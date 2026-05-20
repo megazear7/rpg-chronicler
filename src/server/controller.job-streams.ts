@@ -57,7 +57,11 @@ export async function registerJobStreams(router: Router): Promise<void> {
       await streamWithPolling(
         req,
         res,
-        () => listJobs(z.coerce.number().int().positive().parse(params.page), z.coerce.number().int().positive().parse(params.pageSize)),
+        () =>
+          listJobs(
+            z.coerce.number().int().positive().parse(params.page),
+            z.coerce.number().int().positive().parse(params.pageSize),
+          ),
         "jobs",
       );
     } catch (error) {

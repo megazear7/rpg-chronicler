@@ -35,8 +35,16 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
       .hero,
       .panel {
         background:
-          radial-gradient(circle at top right, color-mix(in srgb, var(--color-accent) 14%, transparent), transparent 36%),
-          linear-gradient(180deg, color-mix(in srgb, var(--color-secondary-surface) 97%, white), var(--color-secondary-surface));
+          radial-gradient(
+            circle at top right,
+            color-mix(in srgb, var(--color-accent) 14%, transparent),
+            transparent 36%
+          ),
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--color-secondary-surface) 97%, white),
+            var(--color-secondary-surface)
+          );
         border-radius: 32px;
         padding: var(--size-large);
         box-shadow: var(--shadow-hover);
@@ -258,7 +266,9 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
 
   override render(): TemplateResult {
     if (!this.job) {
-      return html`<main><p>Loading job...</p></main>`;
+      return html`
+        <main><p>Loading job...</p></main>
+      `;
     }
 
     return html`
@@ -270,18 +280,28 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
           </div>
           <h1>${this.job.file}</h1>
           <div class="hero-grid">
-            <div class="metric"><span>Status</span><strong class=${`status-pill ${this.job.status}`}>${this.job.status}</strong></div>
-            <div class="metric"><span>Progress</span><strong>${this.job.totalProgress}%</strong></div>
-            <div class="metric"><span>Current stage</span><strong>${this.job.currentStage ?? "complete"}</strong></div>
-            <div class="metric"><span>Artifacts</span><strong>${this.job.artifacts.filter((artifact) => artifact.versionCount > 0).length}</strong></div>
+            <div class="metric">
+              <span>Status</span>
+              <strong class=${`status-pill ${this.job.status}`}>${this.job.status}</strong>
+            </div>
+            <div class="metric">
+              <span>Progress</span>
+              <strong>${this.job.totalProgress}%</strong>
+            </div>
+            <div class="metric">
+              <span>Current stage</span>
+              <strong>${this.job.currentStage ?? "complete"}</strong>
+            </div>
+            <div class="metric">
+              <span>Artifacts</span>
+              <strong>${this.job.artifacts.filter((artifact) => artifact.versionCount > 0).length}</strong>
+            </div>
           </div>
         </section>
 
         <section class="panel">
           <h2>Workflow Overview</h2>
-          <div class="workflow-grid">
-            ${this.job.stages.map((stage) => this.renderWorkflowCard(stage))}
-          </div>
+          <div class="workflow-grid">${this.job.stages.map((stage) => this.renderWorkflowCard(stage))}</div>
         </section>
 
         <section class="panel">
@@ -291,9 +311,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
 
         <section class="panel">
           <h2>Stages</h2>
-          <div class="stage-grid">
-            ${this.job.stages.map((stage) => this.renderStage(stage))}
-          </div>
+          <div class="stage-grid">${this.job.stages.map((stage) => this.renderStage(stage))}</div>
         </section>
 
         <section class="panel">
@@ -324,12 +342,22 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
       <article class=${`workflow-card ${stage.kind} ${stage.status}`}>
         <div class="version-actions">
           <strong>${stage.label}</strong>
-          <div class="kind-pill">${stage.kind === "ai" ? html`${aiIcon} AI` : "Human"}</div>
+          <div class="kind-pill">
+            ${stage.kind === "ai"
+              ? html`
+                  ${aiIcon} AI
+                `
+              : "Human"}
+          </div>
         </div>
         <div class="stage-status">${stage.status}</div>
         <div class="progress"><div class="progress-bar" style=${`width:${stage.progress}%`}></div></div>
         <div>${stage.progress}%</div>
-        ${stage.message ? html`<div>${stage.message}</div>` : html``}
+        ${stage.message
+          ? html`
+              <div>${stage.message}</div>
+            `
+          : html``}
       </article>
     `;
   }
@@ -337,7 +365,9 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
   private renderSubmissionContext(): TemplateResult {
     const submission = this.job?.submission;
     if (!submission) {
-      return html`<p>No submission context is attached to this job.</p>`;
+      return html`
+        <p>No submission context is attached to this job.</p>
+      `;
     }
     return html`
       <div class="workflow-grid">
@@ -345,25 +375,63 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
           <strong>Adventure</strong>
           <div>${submission.adventure?.title ?? "Not selected"}</div>
           ${submission.previousEvents.length > 0
-            ? html`<div class="context-list">${submission.previousEvents.map((entry) => html`<span class="context-pill">${entry.title}</span>`)}</div>`
-            : html`<div>No previous events selected.</div>`}
+            ? html`
+                <div class="context-list">
+                  ${submission.previousEvents.map(
+                    (entry) => html`
+                      <span class="context-pill">${entry.title}</span>
+                    `,
+                  )}
+                </div>
+              `
+            : html`
+                <div>No previous events selected.</div>
+              `}
         </article>
         <article class="context-card">
           <strong>People</strong>
           <div class="meta-list">
-            <div><strong>GM:</strong> ${submission.gameMaster?.title ?? "Not selected"}</div>
-            <div><strong>Players:</strong> ${submission.players.length > 0 ? submission.players.map((entry) => entry.title).join(", ") : "None"}</div>
-            <div><strong>Characters:</strong> ${submission.characterAssignments.length > 0 ? submission.characterAssignments.map(({ character, player }) => `${character.title}${player ? ` (${player.title})` : ""}`).join(", ") : "None"}</div>
-            <div><strong>NPCs:</strong> ${submission.npcs.length > 0 ? submission.npcs.map((entry) => entry.title).join(", ") : "None"}</div>
+            <div>
+              <strong>GM:</strong>
+              ${submission.gameMaster?.title ?? "Not selected"}
+            </div>
+            <div>
+              <strong>Players:</strong>
+              ${submission.players.length > 0 ? submission.players.map((entry) => entry.title).join(", ") : "None"}
+            </div>
+            <div>
+              <strong>Characters:</strong>
+              ${submission.characterAssignments.length > 0
+                ? submission.characterAssignments
+                    .map(({ character, player }) => `${character.title}${player ? ` (${player.title})` : ""}`)
+                    .join(", ")
+                : "None"}
+            </div>
+            <div>
+              <strong>NPCs:</strong>
+              ${submission.npcs.length > 0 ? submission.npcs.map((entry) => entry.title).join(", ") : "None"}
+            </div>
           </div>
         </article>
         <article class="context-card">
           <strong>Places and Date</strong>
           <div class="meta-list">
-            <div><strong>Locations:</strong> ${submission.locations.length > 0 ? submission.locations.map((entry) => entry.title).join(", ") : "None"}</div>
-            <div><strong>Year:</strong> ${submission.selection.year ?? "Unset"}</div>
-            <div><strong>Month:</strong> ${submission.selection.month ?? "Unset"}</div>
-            <div><strong>Day:</strong> ${submission.selection.day ?? "Unset"}</div>
+            <div>
+              <strong>Locations:</strong>
+              ${submission.locations.length > 0 ? submission.locations.map((entry) => entry.title).join(", ") : "None"}
+            </div>
+            <div>
+              <strong>Year:</strong>
+              ${submission.selection.year ?? "Unset"}
+            </div>
+            <div>
+              <strong>Month:</strong>
+              ${submission.selection.month ?? "Unset"}
+            </div>
+            <div>
+              <strong>Day:</strong>
+              ${submission.selection.day ?? "Unset"}
+            </div>
           </div>
         </article>
       </div>
@@ -379,7 +447,11 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         <div class="stage-status">${stage.status}</div>
         <div class="progress"><div class="progress-bar" style=${`width:${stage.progress}%`}></div></div>
         <div>${stage.progress}%</div>
-        ${stage.message ? html`<div>${stage.message}</div>` : html``}
+        ${stage.message
+          ? html`
+              <div>${stage.message}</div>
+            `
+          : html``}
       </article>
     `;
   }
@@ -394,7 +466,14 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
     }
 
     const contentful = this.job.contentful;
-    const readyToSend = Boolean(contentful.title && contentful.summary && contentful.story && contentful.dmNotes && this.job.image.selectedAssetId && this.job.song.songUrl);
+    const readyToSend = Boolean(
+      contentful.title &&
+      contentful.summary &&
+      contentful.story &&
+      contentful.dmNotes &&
+      this.job.image.selectedAssetId &&
+      this.job.song.songUrl,
+    );
 
     if (contentful.entryUrl) {
       return html`
@@ -443,11 +522,17 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
             <div>${this.job.image.status}</div>
           </div>
           <button ?disabled=${this.job.image.status === "generating"} @click=${this.handleGenerateImage}>
-            ${this.job.image.status === "generating" ? "Generating..." : html`${refreshIcon} Generate new image`}
+            ${this.job.image.status === "generating"
+              ? "Generating..."
+              : html`
+                  ${refreshIcon} Generate new image
+                `}
           </button>
         </div>
         ${images.length === 0
-          ? html`<p>No generated images yet.</p>`
+          ? html`
+              <p>No generated images yet.</p>
+            `
           : html`
               <div class="image-grid">
                 ${images.map((image) => {
@@ -457,7 +542,11 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
                     <article class=${`image-card ${isSelected ? "selected" : ""}`}>
                       <img class="media-preview" src=${imageUrl} alt=${image.prompt} />
                       <div>${image.prompt}</div>
-                      <div>${image.approvedAt ? `Approved ${new Date(image.approvedAt).toLocaleString()}` : "Awaiting approval"}</div>
+                      <div>
+                        ${image.approvedAt
+                          ? `Approved ${new Date(image.approvedAt).toLocaleString()}`
+                          : "Awaiting approval"}
+                      </div>
                       <button ?disabled=${Boolean(image.approvedAt)} @click=${() => this.handleApproveImage(image.id)}>
                         ${image.approvedAt ? "Approved" : "Approve image"}
                       </button>
@@ -486,10 +575,15 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         <pre>${lyrics || "Lyrics not ready"}</pre>
         <label>
           <span>Final song URL</span>
-          <input .value=${this.selectedSongUrl || this.job.song.songUrl || ""} @input=${this.handleSongUrlInput} placeholder="https://..." />
+          <input
+            .value=${this.selectedSongUrl || this.job.song.songUrl || ""}
+            @input=${this.handleSongUrlInput}
+            placeholder="https://..." />
         </label>
         <div class="actions">
-          <button ?disabled=${!(this.selectedSongUrl || this.job.song.songUrl)} @click=${this.handleSelectSong}>Approve selected song</button>
+          <button ?disabled=${!(this.selectedSongUrl || this.job.song.songUrl)} @click=${this.handleSelectSong}>
+            Approve selected song
+          </button>
         </div>
       </div>
     `;
@@ -511,7 +605,9 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
       <div class="contentful-preview">
         <div><strong>Status</strong></div>
         <div>${this.job.notion.status}</div>
-        <button ?disabled=${this.job.notion.status === "sending" || !this.job.contentful.entryUrl} @click=${this.handleSendToNotion}>
+        <button
+          ?disabled=${this.job.notion.status === "sending" || !this.job.contentful.entryUrl}
+          @click=${this.handleSendToNotion}>
           ${this.job.notion.status === "sending" ? "Sending..." : "Send DM notes to Notion"}
         </button>
       </div>

@@ -5,7 +5,11 @@ import { ArtifactDetail } from "../shared/type.job.js";
 import { AbstractController } from "./main.controller.js";
 import { deleteArtifactVersion } from "./util.job-store.js";
 
-export class DeleteArtifactVersionController extends AbstractController<NoBodyParams, ArtifactVersionPathParameters, ArtifactDetail> {
+export class DeleteArtifactVersionController extends AbstractController<
+  NoBodyParams,
+  ArtifactVersionPathParameters,
+  ArtifactDetail
+> {
   async handler({ pathParams }: RequestOptions<NoBodyParams, ArtifactVersionPathParameters>): Promise<ArtifactDetail> {
     return deleteArtifactVersion(pathParams.jobId, pathParams.artifactKey, pathParams.versionId);
   }

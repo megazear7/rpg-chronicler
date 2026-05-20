@@ -4,8 +4,14 @@ import { ContentfulEventReference, SearchContentfulEventsBody } from "../shared/
 import { AbstractController } from "./main.controller.js";
 import { searchContentfulEvents } from "./util.contentful.js";
 
-export class SearchContentfulEventsController extends AbstractController<SearchContentfulEventsBody, NoPathParams, ContentfulEventReference[]> {
-  async handler({ bodyParams }: RequestOptions<SearchContentfulEventsBody, NoPathParams>): Promise<ContentfulEventReference[]> {
+export class SearchContentfulEventsController extends AbstractController<
+  SearchContentfulEventsBody,
+  NoPathParams,
+  ContentfulEventReference[]
+> {
+  async handler({
+    bodyParams,
+  }: RequestOptions<SearchContentfulEventsBody, NoPathParams>): Promise<ContentfulEventReference[]> {
     return searchContentfulEvents(bodyParams.query);
   }
 }

@@ -1,7 +1,21 @@
 import { Client } from "@notionhq/client";
 import { env } from "./main.env.js";
 
-const DEFAULT_NOTION_PARENT_PAGE = "https://www.notion.so/Heroic-Adventures-35d290435c2f804c8748f861c9151044?source=copy_link";
+const DEFAULT_NOTION_PARENT_PAGE =
+  "https://www.notion.so/Heroic-Adventures-35d290435c2f804c8748f861c9151044?source=copy_link";
+
+type NotionParagraphBlock = {
+  object: "block";
+  type: "paragraph";
+  paragraph: {
+    rich_text: Array<{
+      type: "text";
+      text: {
+        content: string;
+      };
+    }>;
+  };
+};
 
 function getNotionClient(): Client {
   if (!env.NOTION_API_KEY) {
@@ -10,7 +24,7 @@ function getNotionClient(): Client {
   return new Client({ auth: env.NOTION_API_KEY });
 }
 
-function markdownParagraphs(text: string) {
+function markdownParagraphs(text: string): NotionParagraphBlock[] {
   return text
     .split(/\n\s*\n/g)
     .map((paragraph) => paragraph.trim())

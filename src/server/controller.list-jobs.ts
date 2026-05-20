@@ -7,7 +7,10 @@ import { listJobs } from "./util.job-store.js";
 
 export class ListJobsController extends AbstractController<NoBodyParams, ListJobsPathParameters, JobListResponse> {
   async handler({ pathParams }: RequestOptions<NoBodyParams, ListJobsPathParameters>): Promise<JobListResponse> {
-    return listJobs(z.coerce.number().int().positive().parse(pathParams.page), z.coerce.number().int().positive().parse(pathParams.pageSize));
+    return listJobs(
+      z.coerce.number().int().positive().parse(pathParams.page),
+      z.coerce.number().int().positive().parse(pathParams.pageSize),
+    );
   }
 }
 

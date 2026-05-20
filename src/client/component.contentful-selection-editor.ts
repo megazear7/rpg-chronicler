@@ -1,9 +1,18 @@
 import { css, html, LitElement, PropertyValues, TemplateResult } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
 import { globalStyles } from "./styles.global.js";
-import { ContentfulCatalog, ContentfulReference, ContentfulSubmissionSelection, DefaultContentfulSubmissionSelection } from "../shared/type.contentful-context.js";
-import { normalizeSubmissionSelection, resolveSelectedCharacterAssignments } from "../shared/util.contentful-context.js";
+import {
+  ContentfulCatalog,
+  ContentfulReference,
+  ContentfulSubmissionSelection,
+  DefaultContentfulSubmissionSelection,
+} from "../shared/type.contentful-context.js";
+import {
+  normalizeSubmissionSelection,
+  resolveSelectedCharacterAssignments,
+} from "../shared/util.contentful-context.js";
 import { searchContentfulEventsService } from "../shared/service.search-contentful-events.js";
+import { xIcon } from "./icons.js";
 
 type SelectionKey = "characterIds" | "locationIds" | "npcIds" | "previousEventIds";
 type QueryKey = "adventure" | "gameMaster" | "characters" | "locations" | "npcs" | "previousEvents";
@@ -27,7 +36,9 @@ function includesQuery(option: ContentfulReference, query: string): boolean {
   if (!value) {
     return true;
   }
-  return [option.title, option.subtitle, option.description].some((entry) => (entry ?? "").toLowerCase().includes(value));
+  return [option.title, option.subtitle, option.description].some((entry) =>
+    (entry ?? "").toLowerCase().includes(value),
+  );
 }
 
 @customElement("rpg-chronicler-contentful-selection-editor")
@@ -41,6 +52,7 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
   @state() private previousEventSearchResults: ContentfulReference[] = [];
   @state() private previousEventSearchLoading = false;
   @state() private draggedCharacterId: string | null = null;
+  @state() private assignmentQueries: Record<string, string> = {};
   @state() private queries: Record<QueryKey, string> = {
     adventure: "",
     gameMaster: "",
@@ -69,25 +81,17 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
         box-shadow: var(--shadow-normal);
       }
 
-      .section-header,
-      .selection-row,
-      .date-grid {
+      .section-header {
         display: flex;
-        gap: var(--size-medium);
         justify-content: space-between;
-        align-items: center;
+        align-items: start;
+        gap: var(--size-medium);
         flex-wrap: wrap;
       }
 
-      .search,
-      .meta,
-      .grid,
-      .selected-list {
-        display: grid;
-        gap: var(--size-medium);
-      }
-
       .grid {
+        display: grid;
+        gap: var(--size-small);
         grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       }
 
@@ -103,151 +107,198 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
         font: inherit;
       }
 
-      select {
-        appearance: none;
-        background-repeat: no-repeat;
-        background-position: right 1rem center;
-        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-primary-text) 6%, transparent), var(--shadow-normal);
-      }
-
       .month-select {
-        position: relative;
-      }
-
-      .month-select::after {
-        content: "▾";
-        position: absolute;
-        right: 1rem;
-        top: 50%;
-        transform: translateY(-50%);
-        pointer-events: none;
-        color: color-mix(in srgb, var(--color-accent) 80%, white);
-        font-size: 0.95rem;
-      }
-
-      .option-card {
         display: grid;
-        gap: var(--size-small);
-        padding: var(--size-medium);
-        color: var(--color-primary-text);
-        border-radius: 22px;
-        border: 1px solid color-mix(in srgb, var(--color-primary-text) 10%, transparent);
-        background: color-mix(in srgb, var(--color-primary-background) 52%, transparent);
-        cursor: pointer;
-        transition: var(--transition-all);
       }
 
-      .option-card:hover {
-        border-color: color-mix(in srgb, var(--color-accent) 48%, transparent);
-        transform: translateY(-1px);
-      }
-
-      .option-card.selected {
-        border-color: color-mix(in srgb, var(--color-accent) 72%, white);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 18%, transparent);
-        background: color-mix(in srgb, var(--color-accent) 12%, var(--color-primary-background));
-      }
-
-      .pill-list {
-        display: flex;
-        gap: var(--size-small);
-        flex-wrap: wrap;
-      }
-
-      .pill {
+      .pill,
+      .pill-list .pill {
         display: inline-flex;
         align-items: center;
         gap: 0.35rem;
         border-radius: 999px;
-        padding: 0.35rem 0.8rem;
+        padding: 0.3rem 0.7rem;
         background: color-mix(in srgb, var(--color-primary-text) 10%, transparent);
         font-size: var(--font-small);
+        width: fit-content;
       }
 
+      .pill-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--size-small);
+      }
+
+      .option-card,
+      .card-dismiss {
+        transition: var(--transition-all);
+      }
+
+      .option-card {
+        display: grid;
+        gap: 0.35rem;
+        text-align: left;
+        border: 1px solid color-mix(in srgb, var(--color-primary-text) 12%, transparent);
+        border-radius: 20px;
+        background: color-mix(in srgb, var(--color-primary-background) 68%, transparent);
+        color: var(--color-primary-text);
+        padding: var(--size-medium);
+        cursor: pointer;
+        box-shadow: var(--shadow-normal);
+      }
+
+      .option-card:hover,
+      .card-dismiss:hover {
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-hover);
+        border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+      }
+
+      .option-card.selected {
+        border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+        background: color-mix(in srgb, var(--color-accent) 14%, var(--color-primary-background));
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 22%, transparent);
+      }
+
+      .assignment-player-card {
+        display: flex;
+        align-items: center;
+        gap: var(--size-medium);
+        background: var(--color-primary-background);
+        border: 1px solid var(--color-accent);
+        border-radius: 18px;
+        padding: 0.5rem 1.2rem 0.5rem 0.9rem;
+        margin-top: 0.2rem;
+        margin-bottom: 0.2rem;
+        box-shadow: 0 1px 4px 0 rgba(0, 0, 0, 0.08);
+        min-height: 2.2rem;
+      }
+      .assignment-player-card strong {
+        font-size: 1.08em;
+        margin-right: 0.5em;
+      }
+      .assignment-player-card .pill-button {
+        margin-left: auto;
+        font-size: 1.2em;
+        opacity: 0.7;
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--color-primary-text);
+        padding: 0 0.2em;
+        border-radius: 50%;
+        transition: color 0.15s;
+      }
+      .pill-button {
+        color: var(--color-primary-text);
+        transition: color 0.15s;
+      }
+      .pill-button svg {
+        width: 14px;
+        height: 14px;
+        position: relative;
+        top: 1px;
+      }
+      .pill-button:hover {
+        color: var(--color-1);
+      }
+      .pill-button-remove {
+        color: var(--color-danger);
+      }
       .subtitle,
       .empty {
         opacity: 0.72;
       }
-
       .date-grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       }
-
-      .assignment-list,
+      .assignment-list {
+        display: grid;
+        gap: var(--size-medium);
+      }
       .assignment-card,
       .assignment-select {
         display: grid;
         gap: var(--size-small);
       }
-
+      .assignment-player-grid {
+        display: grid;
+        gap: var(--size-small);
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      }
+      .pill-button {
+        width: auto;
+        border: none;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        padding: 0;
+        line-height: 1;
+      }
       .assignment-card {
         position: relative;
         padding: var(--size-medium);
         border-radius: 22px;
-        border: 1px solid color-mix(in srgb, var(--color-primary-text) 10%, transparent);
-        background: color-mix(in srgb, var(--color-primary-background) 52%, transparent);
+        background: var(--color-primary-background);
         cursor: grab;
       }
-
       .assignment-card.drag-over {
-        border-color: color-mix(in srgb, var(--color-accent) 60%, white);
-        box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 18%, transparent);
+        border-color: var(--color-accent);
+        box-shadow: 0 0 0 2px var(--color-accent);
       }
-
       .assignment-card-header {
         display: flex;
         align-items: start;
         justify-content: space-between;
         gap: var(--size-small);
       }
-
       .card-dismiss {
         width: auto;
         border: none;
         background: transparent;
         color: var(--color-primary-text);
         opacity: 0.75;
-        padding: 0;
-        line-height: 1;
-        font-size: 1.1rem;
-        cursor: pointer;
-      }
-
-      .card-dismiss:hover {
-        opacity: 1;
+        border-radius: 999px;
+        padding: 0.15rem 0.45rem;
+        box-shadow: none;
       }
 
       .assignment-empty {
-        margin-top: var(--size-small);
+        padding: var(--size-medium);
+        border-radius: 20px;
+        background: color-mix(in srgb, var(--color-primary-background) 55%, transparent);
+        border: 1px dashed color-mix(in srgb, var(--color-primary-text) 16%, transparent);
       }
     `,
   ];
 
   override willUpdate(changedProperties: PropertyValues<this>): void {
-    if (changedProperties.has("selection") || changedProperties.has("catalog")) {
-      this.draft = this.applyDefaultCharacterAssignments(this.applyDerivedEventDate(normalizeSubmissionSelection(this.selection)));
+    if (!changedProperties.has("selection") && !changedProperties.has("catalog")) {
+      return;
     }
-  }
 
-  getValue(): ContentfulSubmissionSelection {
-    return normalizeSubmissionSelection(this.draft);
+    const normalizedSelection = normalizeSubmissionSelection(this.selection);
+    this.draft = this.applyDefaultCharacterAssignments(this.applyDerivedEventDate(normalizedSelection));
   }
 
   override render(): TemplateResult {
-    if (!this.catalog) {
-      return html`<section class="section"><p>Loading Contentful options...</p></section>`;
-    }
-
     return html`
-      ${this.renderAdventureSection()}
-      ${this.renderGameMasterSection()}
-      ${this.renderCharacterSection()}
-      ${this.renderMultiSelectSection("Locations", "locations", this.catalog.locations, "locationIds")}
-      ${this.renderMultiSelectSection("NPCs", "npcs", this.catalog.npcs, "npcIds")}
-      ${this.renderMultiSelectSection("Previous Events", "previousEvents", this.previousEventOptions, "previousEventIds")}
+      ${this.renderAdventureSection()} ${this.renderGameMasterSection()} ${this.renderCharacterSection()}
+      ${this.renderMultiSelectSection("Locations", "locations", this.catalog?.locations ?? [], "locationIds")}
+      ${this.renderMultiSelectSection("NPCs", "npcs", this.catalog?.npcs ?? [], "npcIds")}
+      ${this.renderMultiSelectSection(
+        "Previous Events",
+        "previousEvents",
+        this.previousEventOptions,
+        "previousEventIds",
+      )}
       ${this.editableEventDate ? this.renderEventDateSection() : html``}
     `;
+  }
+
+  getValue(): ContentfulSubmissionSelection {
+    return this.draft;
   }
 
   private get previousEventOptions(): ContentfulReference[] {
@@ -258,7 +309,7 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
     return this.previousEventSearchResults;
   }
 
-  private get availableEvents() {
+  private get availableEvents(): ContentfulReference[] {
     if (!this.catalog) {
       return [];
     }
@@ -281,13 +332,24 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
             <h3>Adventure</h3>
             <div class="subtitle">Choose the current adventure so RPG Chronicler can pull previous events.</div>
           </div>
-          ${selectedAdventure ? html`<div class="pill">${selectedAdventure.title}</div>` : html`<div class="pill">No adventure selected</div>`}
+          ${selectedAdventure
+            ? html`
+                <div class="pill">${selectedAdventure.title}</div>
+              `
+            : html`
+                <div class="pill">No adventure selected</div>
+              `}
         </div>
-        <input .value=${this.queries.adventure} @input=${(event: Event) => this.updateQuery("adventure", event)} placeholder="Search adventures" />
+        <input
+          .value=${this.queries.adventure}
+          @input=${(event: Event) => this.updateQuery("adventure", event)}
+          placeholder="Search adventures" />
         <div class="grid">
           ${adventures.map(
             (entry) => html`
-              <button class=${`option-card ${this.draft.adventureId === entry.id ? "selected" : ""}`} @click=${() => this.setAdventure(entry.id)}>
+              <button
+                class=${`option-card ${this.draft.adventureId === entry.id ? "selected" : ""}`}
+                @click=${() => this.setAdventure(entry.id)}>
                 <strong>${entry.title}</strong>
               </button>
             `,
@@ -306,15 +368,26 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
             <h3>Game Master</h3>
             <div class="subtitle">Pick the DM/player context to emphasize in prompts.</div>
           </div>
-          <div class="pill">${this.findTitle(this.catalog?.players ?? [], this.draft.gameMasterPlayerId) ?? "No game master selected"}</div>
+          <div class="pill">
+            ${this.findTitle(this.catalog?.players ?? [], this.draft.gameMasterPlayerId) ?? "No game master selected"}
+          </div>
         </div>
-        <input .value=${this.queries.gameMaster} @input=${(event: Event) => this.updateQuery("gameMaster", event)} placeholder="Search players for the game master" />
+        <input
+          .value=${this.queries.gameMaster}
+          @input=${(event: Event) => this.updateQuery("gameMaster", event)}
+          placeholder="Search players for the game master" />
         <div class="grid">
           ${players.map(
             (entry) => html`
-              <button class=${`option-card ${this.draft.gameMasterPlayerId === entry.id ? "selected" : ""}`} @click=${() => this.setGameMaster(entry.id)}>
+              <button
+                class=${`option-card ${this.draft.gameMasterPlayerId === entry.id ? "selected" : ""}`}
+                @click=${() => this.setGameMaster(entry.id)}>
                 <strong>${entry.title}</strong>
-                ${entry.description ? html`<div class="subtitle">${entry.description}</div>` : html``}
+                ${entry.description
+                  ? html`
+                      <div class="subtitle">${entry.description}</div>
+                    `
+                  : html``}
               </button>
             `,
           )}
@@ -324,10 +397,19 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
   }
 
   private renderCharacterSection(): TemplateResult {
-    const characters = (this.catalog?.characters ?? []).filter((entry) => includesQuery(entry, this.queries.characters));
+    const characters = (this.catalog?.characters ?? []).filter((entry) =>
+      includesQuery(entry, this.queries.characters),
+    );
     const requiresSearch = true;
     const query = this.queries.characters;
     const filteredCharacters = requiresSearch && query.trim().length === 0 ? [] : characters;
+    const resolvedPlayerByCharacterId = new Map(
+      resolveSelectedCharacterAssignments(this.catalog, this.draft).map(({ character, player }) => [
+        character.id,
+        player?.id ?? null,
+      ]),
+    );
+    const players = this.catalog?.players ?? [];
     const selectedCharacters = this.draft.characterIds
       .map((characterId) => this.catalog?.characters.find((entry) => entry.id === characterId) ?? null)
       .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
@@ -337,26 +419,42 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
         <div class="section-header">
           <div>
             <h3>Characters</h3>
-            <div class="subtitle">Select the characters for this session and choose which player is playing each one.</div>
+            <div class="subtitle">
+              Select the characters for this session and choose which player is playing each one.
+            </div>
           </div>
           <div class="pill">${this.draft.characterIds.length} selected</div>
         </div>
-        <input .value=${this.queries.characters} @input=${(event: Event) => this.updateQuery("characters", event)} placeholder="Search characters" />
-        ${requiresSearch && query.trim().length === 0 ? html`<div class="empty">Start typing to search characters.</div>` : html``}
+        <input
+          .value=${this.queries.characters}
+          @input=${(event: Event) => this.updateQuery("characters", event)}
+          placeholder="Search characters" />
         <div class="grid">
           ${filteredCharacters.map(
             (entry) => html`
-              <button class=${`option-card ${this.draft.characterIds.includes(entry.id) ? "selected" : ""}`} @click=${() => this.toggleSelection("characterIds", entry.id)}>
+              <button
+                class=${`option-card ${this.draft.characterIds.includes(entry.id) ? "selected" : ""}`}
+                @click=${() => this.toggleSelection("characterIds", entry.id)}>
                 <strong>${entry.title}</strong>
-                ${entry.subtitle ? html`<div class="subtitle">${entry.subtitle}</div>` : html``}
-                ${entry.description ? html`<div class="subtitle">${entry.description}</div>` : html``}
+                ${entry.subtitle
+                  ? html`
+                      <div class="subtitle">${entry.subtitle}</div>
+                    `
+                  : html``}
+                ${entry.description
+                  ? html`
+                      <div class="subtitle">${entry.description}</div>
+                    `
+                  : html``}
               </button>
             `,
           )}
         </div>
         <div class="assignment-list">
           ${selectedCharacters.length === 0
-            ? html`<div class="empty assignment-empty">No characters selected yet.</div>`
+            ? html`
+                <div class="empty assignment-empty">No characters selected yet.</div>
+              `
             : selectedCharacters.map(
                 (character) => html`
                   <div
@@ -367,19 +465,75 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
                     @dragover=${this.handleAssignmentDragOver}
                     @drop=${(event: DragEvent) => this.handleAssignmentDrop(character.id, event)}>
                     <div class="assignment-card-header">
-                      <strong>${character.title}</strong>
-                      <button class="card-dismiss" aria-label=${`Remove ${character.title}`} @click=${(event: Event) => this.removeCharacter(character.id, event)}>×</button>
+                      <div>
+                        <strong>${character.title}</strong>
+                        ${character.subtitle
+                          ? html`
+                              <span class="subtitle">(${character.subtitle})</span>
+                            `
+                          : html``}
+                      </div>
+                      <button
+                        class="card-dismiss"
+                        aria-label=${`Remove ${character.title}`}
+                        @click=${(event: Event) => this.removeCharacter(character.id, event)}>
+                        ${xIcon}
+                      </button>
                     </div>
-                    ${character.subtitle ? html`<div class="subtitle">${character.subtitle}</div>` : html``}
-                    <label class="assignment-select">
-                      <span class="subtitle">Is played by</span>
-                      <select .value=${this.getAssignedPlayerId(character.id) ?? ""} @change=${(event: Event) => this.updateCharacterAssignment(character.id, event)}>
-                        <option value="">Select player</option>
-                        ${(this.catalog?.players ?? []).map(
-                          (player) => html`<option value=${player.id}>${player.title}</option>`,
-                        )}
-                      </select>
-                    </label>
+                    <div class="assignment-select">
+                      ${(() => {
+                        const assignedPlayerId = resolvedPlayerByCharacterId.get(character.id) ?? null;
+                        const assignedPlayer = assignedPlayerId
+                          ? (players.find((player) => player.id === assignedPlayerId) ?? null)
+                          : null;
+                        const query = this.assignmentQueries[character.id] ?? "";
+                        const filteredPlayers =
+                          query.trim().length === 0 ? [] : players.filter((player) => includesQuery(player, query));
+
+                        return html`
+                          ${assignedPlayer
+                            ? html`
+                                <div class="pill-list">
+                                  <span class="pill">
+                                    ${assignedPlayer.title}
+                                    <button
+                                      class="pill-button pill-button-remove"
+                                      aria-label=${`Clear ${character.title} assignment`}
+                                      @click=${(event: Event) => this.clearCharacterAssignment(character.id, event)}>
+                                      ${xIcon}
+                                    </button>
+                                  </span>
+                                </div>
+                              `
+                            : html`
+                                <input
+                                  .value=${query}
+                                  @input=${(event: Event) => this.updateAssignmentQuery(character.id, event)}
+                                  placeholder="Search players for assignment" />
+                                ${query.trim().length === 0
+                                  ? html``
+                                  : filteredPlayers.length === 0
+                                    ? html`
+                                        <div class="empty">No matching players.</div>
+                                      `
+                                    : html`
+                                        <div class="assignment-player-grid">
+                                          ${filteredPlayers.map(
+                                            (player) => html`
+                                              <button
+                                                type="button"
+                                                class=${`option-card ${assignedPlayerId === player.id ? "selected" : ""}`}
+                                                @click=${() => this.setCharacterAssignment(character.id, player.id)}>
+                                                <strong>${player.title}</strong>
+                                              </button>
+                                            `,
+                                          )}
+                                        </div>
+                                      `}
+                              `}
+                        `;
+                      })()}
+                    </div>
                   </div>
                 `,
               )}
@@ -396,7 +550,8 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
   ): TemplateResult {
     const query = this.queries[queryKey];
     const requiresSearch = this.searchBeforeListingQueries.includes(queryKey);
-    const filtered = requiresSearch && query.trim().length === 0 ? [] : options.filter((entry) => includesQuery(entry, query));
+    const filtered =
+      requiresSearch && query.trim().length === 0 ? [] : options.filter((entry) => includesQuery(entry, query));
     const selectedIds = this.draft[selectionKey];
     const labelOptions = selectionKey === "previousEventIds" ? [...options, ...(this.catalog?.events ?? [])] : options;
 
@@ -409,29 +564,60 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
           </div>
           <div class="pill">${selectedIds.length} selected</div>
         </div>
-        <input .value=${this.queries[queryKey]} @input=${(event: Event) => this.updateQuery(queryKey, event)} placeholder=${`Search ${title.toLowerCase()}`} />
+        <input
+          .value=${this.queries[queryKey]}
+          @input=${(event: Event) => this.updateQuery(queryKey, event)}
+          placeholder=${`Search ${title.toLowerCase()}`} />
         <div class="pill-list">
           ${selectedIds.length === 0
-            ? html`<span class="empty">Nothing selected yet.</span>`
-            : selectedIds.map((id) => html`<span class="pill">${this.findTitle(labelOptions, id) ?? id}</span>`)}
+            ? html`
+                <span class="empty">Nothing selected yet.</span>
+              `
+            : selectedIds.map((id) => {
+                const title = this.findTitle(labelOptions, id) ?? id;
+                return html`
+                  <span class="pill">
+                    ${title}
+                    <button
+                      type="button"
+                      class="pill-button pill-button-remove"
+                      aria-label=${`Remove ${title}`}
+                      @click=${() => this.toggleSelection(selectionKey, id)}>
+                      ${xIcon}
+                    </button>
+                  </span>
+                `;
+              })}
         </div>
         ${requiresSearch && query.trim().length === 0
-          ? html`<div class="empty">Start typing to search ${title.toLowerCase()}.</div>`
+          ? html``
           : queryKey === "previousEvents" && this.previousEventSearchLoading
-            ? html`<div class="empty">Searching previous events...</div>`
-          : html`
-              <div class="grid">
-                ${filtered.map(
-                  (entry) => html`
-                    <button class=${`option-card ${selectedIds.includes(entry.id) ? "selected" : ""}`} @click=${() => this.toggleSelection(selectionKey, entry.id)}>
-                      <strong>${entry.title}</strong>
-                      ${entry.subtitle ? html`<div class="subtitle">${entry.subtitle}</div>` : html``}
-                      ${entry.description ? html`<div class="subtitle">${entry.description}</div>` : html``}
-                    </button>
-                  `,
-                )}
-              </div>
-            `}
+            ? html`
+                <div class="empty">Searching previous events...</div>
+              `
+            : html`
+                <div class="grid">
+                  ${filtered.map(
+                    (entry) => html`
+                      <button
+                        class=${`option-card ${selectedIds.includes(entry.id) ? "selected" : ""}`}
+                        @click=${() => this.toggleSelection(selectionKey, entry.id)}>
+                        <strong>${entry.title}</strong>
+                        ${entry.subtitle
+                          ? html`
+                              <div class="subtitle">${entry.subtitle}</div>
+                            `
+                          : html``}
+                        ${entry.description
+                          ? html`
+                              <div class="subtitle">${entry.description}</div>
+                            `
+                          : html``}
+                      </button>
+                    `,
+                  )}
+                </div>
+              `}
       </section>
     `;
   }
@@ -442,21 +628,36 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
         <div class="section-header">
           <div>
             <h3>Event Date</h3>
-            <div class="subtitle">The in-world date of the event. This defaults to the most recent adventure event plus one day.</div>
+            <div class="subtitle">
+              The in-world date of the event. This defaults to the most recent adventure event plus one day.
+            </div>
           </div>
         </div>
         <div class="date-grid">
-          <input type="number" .value=${String(this.draft.year ?? "")} @input=${(event: Event) => this.updateNumberField("year", event)} placeholder="Year" />
+          <input
+            type="number"
+            .value=${String(this.draft.year ?? "")}
+            @input=${(event: Event) => this.updateNumberField("year", event)}
+            placeholder="Year" />
           <label class="month-select">
-            <select .value=${this.draft.month ?? ""} @change=${(event: Event) => this.updateTextField("month", event)} aria-label="Month">
+            <select
+              .value=${this.draft.month ?? ""}
+              @change=${(event: Event) => this.updateTextField("month", event)}
+              aria-label="Month">
               <option value="">Select month</option>
               ${MONTH_NAMES.map((monthName, index) => {
                 const value = `${index + 1}: ${monthName}`;
-                return html`<option value=${value}>${monthName}</option>`;
+                return html`
+                  <option value=${value}>${monthName}</option>
+                `;
               })}
             </select>
           </label>
-          <input type="number" .value=${String(this.draft.day ?? "")} @input=${(event: Event) => this.updateNumberField("day", event)} placeholder="Day" />
+          <input
+            type="number"
+            .value=${String(this.draft.day ?? "")}
+            @input=${(event: Event) => this.updateNumberField("day", event)}
+            placeholder="Day" />
         </div>
       </section>
     `;
@@ -484,10 +685,12 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
 
     return normalizeSubmissionSelection({
       ...selection,
-      characterAssignments: resolveSelectedCharacterAssignments(this.catalog, selection).map(({ character, player }) => ({
-        characterId: character.id,
-        playerId: player?.id ?? null,
-      })),
+      characterAssignments: resolveSelectedCharacterAssignments(this.catalog, selection).map(
+        ({ character, player }) => ({
+          characterId: character.id,
+          playerId: player?.id ?? null,
+        }),
+      ),
     });
   }
 
@@ -519,10 +722,22 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
   ): number {
     const leftMonth = this.parseMonthIndex(left.month ?? null);
     const rightMonth = this.parseMonthIndex(right.month ?? null);
-    if (left.year === null || left.year === undefined || leftMonth === null || left.day === null || left.day === undefined) {
+    if (
+      left.year === null ||
+      left.year === undefined ||
+      leftMonth === null ||
+      left.day === null ||
+      left.day === undefined
+    ) {
       return -1;
     }
-    if (right.year === null || right.year === undefined || rightMonth === null || right.day === null || right.day === undefined) {
+    if (
+      right.year === null ||
+      right.year === undefined ||
+      rightMonth === null ||
+      right.day === null ||
+      right.day === undefined
+    ) {
       return 1;
     }
     return Date.UTC(left.year, leftMonth, left.day) - Date.UTC(right.year, rightMonth, right.day);
@@ -559,10 +774,11 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
   }
 
   private updateDraft(next: ContentfulSubmissionSelection): void {
-    this.draft = next;
+    const normalized = this.applyDefaultCharacterAssignments(normalizeSubmissionSelection(next));
+    this.draft = normalized;
     this.dispatchEvent(
       new CustomEvent<ContentfulSubmissionSelection>("selection-change", {
-        detail: this.getValue(),
+        detail: normalized,
         bubbles: true,
         composed: true,
       }),
@@ -608,18 +824,26 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
   private setAdventure(adventureId: string): void {
     const allowedPreviousEvents = new Set(
       (this.catalog?.events ?? [])
-        .filter((entry) => entry.adventureId === adventureId || (this.catalog?.adventures.find((adventure) => adventure.id === adventureId)?.eventIds ?? []).includes(entry.id))
+        .filter(
+          (entry) =>
+            entry.adventureId === adventureId ||
+            (this.catalog?.adventures.find((adventure) => adventure.id === adventureId)?.eventIds ?? []).includes(
+              entry.id,
+            ),
+        )
         .map((entry) => entry.id),
     );
     const derivedDate = this.deriveEventDate(adventureId);
-    this.updateDraft(normalizeSubmissionSelection({
-      ...this.draft,
-      adventureId,
-      previousEventIds: this.draft.previousEventIds.filter((id) => allowedPreviousEvents.has(id)),
-      year: derivedDate?.year ?? null,
-      month: derivedDate?.month ?? null,
-      day: derivedDate?.day ?? null,
-    }));
+    this.updateDraft(
+      normalizeSubmissionSelection({
+        ...this.draft,
+        adventureId,
+        previousEventIds: this.draft.previousEventIds.filter((id) => allowedPreviousEvents.has(id)),
+        year: derivedDate?.year ?? null,
+        month: derivedDate?.month ?? null,
+        day: derivedDate?.day ?? null,
+      }),
+    );
 
     if (this.queries.previousEvents.trim().length > 0) {
       void this.loadPreviousEventResults(this.queries.previousEvents);
@@ -627,10 +851,12 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
   }
 
   private setGameMaster(playerId: string): void {
-    this.updateDraft(normalizeSubmissionSelection({
-      ...this.draft,
-      gameMasterPlayerId: playerId,
-    }));
+    this.updateDraft(
+      normalizeSubmissionSelection({
+        ...this.draft,
+        gameMasterPlayerId: playerId,
+      }),
+    );
   }
 
   private toggleSelection(key: SelectionKey, id: string): void {
@@ -642,46 +868,71 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
             ...this.draft.characterAssignments.filter((entry) => entry.characterId !== id),
             {
               characterId: id,
-              playerId: this.draft.characterAssignments.find((entry) => entry.characterId === id)?.playerId
-                ?? this.catalog?.characters.find((entry) => entry.id === id)?.playerId
-                ?? null,
+              playerId:
+                this.draft.characterAssignments.find((entry) => entry.characterId === id)?.playerId ??
+                this.catalog?.characters.find((entry) => entry.id === id)?.playerId ??
+                null,
             },
           ]
         : this.draft.characterAssignments.filter((entry) => entry.characterId !== id);
-      this.updateDraft(normalizeSubmissionSelection({
-        ...this.draft,
-        characterIds: next,
-        characterAssignments: nextAssignments,
-      }));
+      this.updateDraft(
+        normalizeSubmissionSelection({
+          ...this.draft,
+          characterIds: next,
+          characterAssignments: nextAssignments,
+        }),
+      );
       return;
     }
 
-    this.updateDraft(normalizeSubmissionSelection({
-      ...this.draft,
-      [key]: next,
-    }));
+    this.updateDraft(
+      normalizeSubmissionSelection({
+        ...this.draft,
+        [key]: next,
+      }),
+    );
   }
 
-  private updateCharacterAssignment(characterId: string, event: Event): void {
-    const target = event.currentTarget as HTMLSelectElement;
-    const playerId = target.value.trim() || null;
-    this.updateDraft(normalizeSubmissionSelection({
-      ...this.draft,
-      characterAssignments: [
-        ...this.draft.characterAssignments.filter((entry) => entry.characterId !== characterId),
-        { characterId, playerId },
-      ],
-    }));
+  private setCharacterAssignment(characterId: string, playerId: string | null): void {
+    this.updateDraft(
+      normalizeSubmissionSelection({
+        ...this.draft,
+        characterAssignments: [
+          ...this.draft.characterAssignments.filter((entry) => entry.characterId !== characterId),
+          { characterId, playerId },
+        ],
+      }),
+    );
+    this.assignmentQueries = {
+      ...this.assignmentQueries,
+      [characterId]: "",
+    };
+  }
+
+  private updateAssignmentQuery(characterId: string, event: Event): void {
+    const target = event.currentTarget as HTMLInputElement;
+    this.assignmentQueries = {
+      ...this.assignmentQueries,
+      [characterId]: target.value,
+    };
+  }
+
+  private clearCharacterAssignment(characterId: string, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.setCharacterAssignment(characterId, null);
   }
 
   private removeCharacter(characterId: string, event: Event): void {
     event.preventDefault();
     event.stopPropagation();
-    this.updateDraft(normalizeSubmissionSelection({
-      ...this.draft,
-      characterIds: this.draft.characterIds.filter((entry) => entry !== characterId),
-      characterAssignments: this.draft.characterAssignments.filter((entry) => entry.characterId !== characterId),
-    }));
+    this.updateDraft(
+      normalizeSubmissionSelection({
+        ...this.draft,
+        characterIds: this.draft.characterIds.filter((entry) => entry !== characterId),
+        characterAssignments: this.draft.characterAssignments.filter((entry) => entry.characterId !== characterId),
+      }),
+    );
   }
 
   private handleAssignmentDragStart(characterId: string, event: DragEvent): void {
@@ -723,41 +974,39 @@ export class RpgChroniclerContentfulSelectionEditor extends LitElement {
     reorderedCharacterIds.splice(targetIndex, 0, movedCharacterId);
 
     const assignmentByCharacterId = new Map(this.draft.characterAssignments.map((entry) => [entry.characterId, entry]));
-    this.updateDraft(normalizeSubmissionSelection({
-      ...this.draft,
-      characterIds: reorderedCharacterIds,
-      characterAssignments: reorderedCharacterIds
-        .map((characterId) => assignmentByCharacterId.get(characterId))
-        .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
-    }));
+    this.updateDraft(
+      normalizeSubmissionSelection({
+        ...this.draft,
+        characterIds: reorderedCharacterIds,
+        characterAssignments: reorderedCharacterIds
+          .map((characterId) => assignmentByCharacterId.get(characterId))
+          .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry)),
+      }),
+    );
   }
 
   private updateNumberField(key: "year" | "day", event: Event): void {
     const target = event.currentTarget as HTMLInputElement;
     const parsed = target.value.trim().length === 0 ? null : Number(target.value);
-    this.updateDraft(normalizeSubmissionSelection({
-      ...this.draft,
-      [key]: Number.isFinite(parsed) ? parsed : null,
-    }));
+    this.updateDraft(
+      normalizeSubmissionSelection({
+        ...this.draft,
+        [key]: Number.isFinite(parsed) ? parsed : null,
+      }),
+    );
   }
 
   private updateTextField(key: "month", event: Event): void {
     const target = event.currentTarget as HTMLInputElement | HTMLSelectElement;
-    this.updateDraft(normalizeSubmissionSelection({
-      ...this.draft,
-      [key]: target.value.trim() || null,
-    }));
+    this.updateDraft(
+      normalizeSubmissionSelection({
+        ...this.draft,
+        [key]: target.value.trim() || null,
+      }),
+    );
   }
 
   private findTitle(options: ContentfulReference[], id: string | null): string | null {
-    return id ? options.find((entry) => entry.id === id)?.title ?? null : null;
-  }
-
-  private getAssignedPlayerId(characterId: string): string | null {
-    const assigned = this.draft.characterAssignments.find((entry) => entry.characterId === characterId);
-    if (assigned) {
-      return assigned.playerId;
-    }
-    return this.catalog?.characters.find((entry) => entry.id === characterId)?.playerId ?? null;
+    return id ? (options.find((entry) => entry.id === id)?.title ?? null) : null;
   }
 }

@@ -58,8 +58,16 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
       .version-item,
       .log-item {
         background:
-          radial-gradient(circle at top right, color-mix(in srgb, var(--color-accent) 14%, transparent), transparent 36%),
-          linear-gradient(180deg, color-mix(in srgb, var(--color-secondary-surface) 97%, white), var(--color-secondary-surface));
+          radial-gradient(
+            circle at top right,
+            color-mix(in srgb, var(--color-accent) 14%, transparent),
+            transparent 36%
+          ),
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--color-secondary-surface) 97%, white),
+            var(--color-secondary-surface)
+          );
         border-radius: 32px;
         padding: var(--size-large);
         box-shadow: var(--shadow-hover);
@@ -250,7 +258,9 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
 
   override render(): TemplateResult {
     if (!this.job) {
-      return html`<main><p>Loading stage...</p></main>`;
+      return html`
+        <main><p>Loading stage...</p></main>
+      `;
     }
 
     const stageName = this.resolveStageName();
@@ -268,11 +278,12 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
 
     const stage = this.job.stages.find((item) => item.name === stageName) ?? null;
     const artifactKey = STAGE_ARTIFACT_MAP[stageName] ?? null;
-    const artifact = artifactKey ? this.job.artifacts.find((item) => item.key === artifactKey) ?? null : null;
+    const artifact = artifactKey ? (this.job.artifacts.find((item) => item.key === artifactKey) ?? null) : null;
     const logs = this.job.logs.filter((entry) => entry.stage === stageName);
     const stageIndex = this.job.stages.findIndex((item) => item.name === stageName);
     const previousStage = stageIndex > 0 ? this.job.stages[stageIndex - 1] : null;
-    const nextStage = stageIndex >= 0 && stageIndex < this.job.stages.length - 1 ? this.job.stages[stageIndex + 1] : null;
+    const nextStage =
+      stageIndex >= 0 && stageIndex < this.job.stages.length - 1 ? this.job.stages[stageIndex + 1] : null;
 
     return html`
       <main>
@@ -280,23 +291,50 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
           <div class="hero-top">
             <a class="link-chip" href=${`/jobs/${this.params.jobId}`}>${leftArrowIcon} Job overview</a>
             <div class="stage-jump">
-              ${previousStage ? html`<a class="link-chip" href=${this.renderStagePath(previousStage.name)}>${leftArrowIcon} ${previousStage.label}</a>` : html``}
+              ${previousStage
+                ? html`
+                    <a class="link-chip" href=${this.renderStagePath(previousStage.name)}>
+                      ${leftArrowIcon} ${previousStage.label}
+                    </a>
+                  `
+                : html``}
               <a class="link-chip" href=${`/jobs/${this.params.jobId}/logs`}>Logs ${detailsIcon}</a>
-              ${nextStage ? html`<a class="link-chip" href=${this.renderStagePath(nextStage.name)}>${nextStage.label} ${rightArrowIcon}</a>` : html``}
+              ${nextStage
+                ? html`
+                    <a class="link-chip" href=${this.renderStagePath(nextStage.name)}>
+                      ${nextStage.label} ${rightArrowIcon}
+                    </a>
+                  `
+                : html``}
             </div>
           </div>
           <h1>${stage?.label ?? this.params.stageSlug}</h1>
           <div class="hero-grid">
-            <div class="metric"><span>Status</span><strong class=${`status-pill ${stage?.status ?? "pending"}`}>${stage?.status ?? "pending"}</strong></div>
-            <div class="metric"><span>Progress</span><strong>${stage?.progress ?? 0}%</strong></div>
-            <div class="metric"><span>Versions</span><strong>${artifact?.versionCount ?? 0}</strong></div>
-            <div class="metric"><span>Last update</span><strong>${stage ? new Date(stage.updatedAt).toLocaleString() : "Unknown"}</strong></div>
+            <div class="metric">
+              <span>Status</span>
+              <strong class=${`status-pill ${stage?.status ?? "pending"}`}>${stage?.status ?? "pending"}</strong>
+            </div>
+            <div class="metric">
+              <span>Progress</span>
+              <strong>${stage?.progress ?? 0}%</strong>
+            </div>
+            <div class="metric">
+              <span>Versions</span>
+              <strong>${artifact?.versionCount ?? 0}</strong>
+            </div>
+            <div class="metric">
+              <span>Last update</span>
+              <strong>${stage ? new Date(stage.updatedAt).toLocaleString() : "Unknown"}</strong>
+            </div>
           </div>
-          ${stage?.message ? html`<p class="stage-message">${stage.message}</p>` : html``}
+          ${stage?.message
+            ? html`
+                <p class="stage-message">${stage.message}</p>
+              `
+            : html``}
         </section>
 
         ${artifact ? this.renderArtifactEditor(artifact) : this.renderStageOverview(stage, logs)}
-
         ${artifact ? this.renderVersions(artifact) : html``}
 
         <section>
@@ -305,7 +343,11 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
             <span class="pill">${logs.length} entries</span>
           </div>
           <div class="log-list">
-            ${logs.length === 0 ? html`<p>No stage-specific logs yet.</p>` : logs.map((entry) => this.renderLog(entry))}
+            ${logs.length === 0
+              ? html`
+                  <p>No stage-specific logs yet.</p>
+                `
+              : logs.map((entry) => this.renderLog(entry))}
           </div>
         </section>
       </main>
@@ -326,12 +368,23 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
             <div class="editor-meta">
               <span class="pill">Words ${words}</span>
               <span class="pill">Characters ${chars}</span>
-              ${activeVersion ? html`<span class="pill">Active ${activeVersion.source}</span>` : html``}
-              ${artifact.generatedVersionId && artifact.generatedVersionId === activeVersion?.id ? html`<span class="pill">Generated</span>` : html``}
+              ${activeVersion
+                ? html`
+                    <span class="pill">Active ${activeVersion.source}</span>
+                  `
+                : html``}
+              ${artifact.generatedVersionId && artifact.generatedVersionId === activeVersion?.id
+                ? html`
+                    <span class="pill">Generated</span>
+                  `
+                : html``}
             </div>
           </div>
           <div class="editor-actions">
-            <button class="secondary icon-button" @click=${() => this.handleCopy(editorValue)} title="Copy current editor text">
+            <button
+              class="secondary icon-button"
+              @click=${() => this.handleCopy(editorValue)}
+              title="Copy current editor text">
               ${copyIcon} ${this.copyState === "copied" ? "Copied" : "Copy"}
             </button>
             <button class="secondary" ?disabled=${!activeVersion} @click=${() => this.handleResetEditor(artifact)}>
@@ -342,7 +395,9 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
         </div>
 
         <div class="editor-shell">
-          <textarea .value=${editorValue} @input=${(event: Event) => this.handleEditorInput(artifact.key, event)}></textarea>
+          <textarea
+            .value=${editorValue}
+            @input=${(event: Event) => this.handleEditorInput(artifact.key, event)}></textarea>
         </div>
       </section>
     `;
@@ -353,8 +408,16 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
       <section class="panel empty-state">
         <h2>No editable artifact for this stage</h2>
         <p>This stage tracks workflow status and logs but does not own a text artifact version history.</p>
-        ${stage?.message ? html`<div class="pill">Latest note: ${stage.message}</div>` : html``}
-        ${logs.length > 0 ? html`<div class="pill">Recent log: ${logs[logs.length - 1]?.message}</div>` : html``}
+        ${stage?.message
+          ? html`
+              <div class="pill">Latest note: ${stage.message}</div>
+            `
+          : html``}
+        ${logs.length > 0
+          ? html`
+              <div class="pill">Recent log: ${logs[logs.length - 1]?.message}</div>
+            `
+          : html``}
       </section>
     `;
   }
@@ -368,7 +431,11 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
           <span class="pill">${versions.length} versions</span>
         </div>
         <div class="version-list">
-          ${versions.length === 0 ? html`<p>No saved versions yet.</p>` : versions.map((version) => this.renderVersion(artifact, version))}
+          ${versions.length === 0
+            ? html`
+                <p>No saved versions yet.</p>
+              `
+            : versions.map((version) => this.renderVersion(artifact, version))}
         </div>
       </section>
     `;
@@ -384,9 +451,21 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
         <div class="version-header">
           <div class="editor-meta">
             <span class="pill">${version.source}</span>
-            ${isGenerated ? html`<span class="pill">Generated</span>` : html``}
-            ${isActive ? html`<span class="pill">Active</span>` : html``}
-            ${isDeleted ? html`<span class="pill">Deleted</span>` : html``}
+            ${isGenerated
+              ? html`
+                  <span class="pill">Generated</span>
+                `
+              : html``}
+            ${isActive
+              ? html`
+                  <span class="pill">Active</span>
+                `
+              : html``}
+            ${isDeleted
+              ? html`
+                  <span class="pill">Deleted</span>
+                `
+              : html``}
           </div>
           <small>${new Date(version.createdAt).toLocaleString()}</small>
         </div>
@@ -399,7 +478,10 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
             <button class="secondary" ?disabled=${isDeleted} @click=${() => this.handleLoadVersion(artifact, version)}>
               Load into editor
             </button>
-            <button class="secondary" ?disabled=${isActive || isDeleted} @click=${() => this.handleActivateVersion(artifact, version)}>
+            <button
+              class="secondary"
+              ?disabled=${isActive || isDeleted}
+              @click=${() => this.handleActivateVersion(artifact, version)}>
               Make active
             </button>
             <button class="danger" ?disabled=${isDeleted} @click=${() => this.handleDeleteVersion(artifact, version)}>
@@ -558,10 +640,10 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
       },
       contentful: {
         ...this.job.contentful,
-        title: detail.key === "title" ? detail.activeVersion?.text ?? null : this.job.contentful.title,
-        summary: detail.key === "summary" ? detail.activeVersion?.text ?? null : this.job.contentful.summary,
-        story: detail.key === "story" ? detail.activeVersion?.text ?? null : this.job.contentful.story,
-        dmNotes: detail.key === "dmNotes" ? detail.activeVersion?.text ?? null : this.job.contentful.dmNotes,
+        title: detail.key === "title" ? (detail.activeVersion?.text ?? null) : this.job.contentful.title,
+        summary: detail.key === "summary" ? (detail.activeVersion?.text ?? null) : this.job.contentful.summary,
+        story: detail.key === "story" ? (detail.activeVersion?.text ?? null) : this.job.contentful.story,
+        dmNotes: detail.key === "dmNotes" ? (detail.activeVersion?.text ?? null) : this.job.contentful.dmNotes,
       },
     });
   }

@@ -39,8 +39,16 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
 
       .panel {
         background:
-          radial-gradient(circle at top right, color-mix(in srgb, var(--color-accent) 18%, transparent), transparent 38%),
-          linear-gradient(180deg, color-mix(in srgb, var(--color-secondary-surface) 96%, white), var(--color-secondary-surface));
+          radial-gradient(
+            circle at top right,
+            color-mix(in srgb, var(--color-accent) 18%, transparent),
+            transparent 38%
+          ),
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--color-secondary-surface) 96%, white),
+            var(--color-secondary-surface)
+          );
         border-radius: 32px;
         padding: var(--size-large);
         box-shadow: var(--shadow-hover);
@@ -265,7 +273,10 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
             <article class="panel">
               <div class="eyebrow">Session Processing</div>
               <h1>Turn raw session audio into a tracked publishing workflow</h1>
-              <p>Upload a recording, watch each stage update live, inspect logs, edit generated artifacts, and send approved output to Contentful only when it is ready.</p>
+              <p>
+                Upload a recording, watch each stage update live, inspect logs, edit generated artifacts, and send
+                approved output to Contentful only when it is ready.
+              </p>
               <div
                 class=${`upload-field ${this.dragActive ? "drag-active" : ""}`}
                 @dragenter=${this.handleDragEnter}
@@ -276,10 +287,18 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
                   <div class="upload-icon">${audioIcon}</div>
                   <div>
                     <strong>Drop in your source audio</strong>
-                    <div class="hint">MP3 and M4A are supported. Drag a file here or browse below. Larger files split automatically for processing.</div>
+                    <div class="hint">
+                      MP3 and M4A are supported. Drag a file here or browse below. Larger files split automatically for
+                      processing.
+                    </div>
                   </div>
                 </div>
-                <input id="source-audio-input" class="file-input" type="file" accept=".mp3,.m4a,audio/mpeg,audio/mp4,audio/x-m4a" @change=${this.handleFileChange} />
+                <input
+                  id="source-audio-input"
+                  class="file-input"
+                  type="file"
+                  accept=".mp3,.m4a,audio/mpeg,audio/mp4,audio/x-m4a"
+                  @change=${this.handleFileChange} />
                 <label class="browser-link" for="source-audio-input">Open file browser</label>
               </div>
             </article>
@@ -290,13 +309,27 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
                 ? html`
                     <h2>${this.latestJob.file}</h2>
                     <div class="job-meta">
-                      <div class="meta-row"><span>ID</span><strong>${this.latestJob.id}</strong></div>
-                      <div class="meta-row"><span>Status</span><strong class=${`status-pill ${this.latestJob.status}`}>${this.latestJob.status}</strong></div>
-                      <div class="meta-row"><span>Total progress</span><strong>${this.latestJob.totalProgress}%</strong></div>
-                      <div class="meta-row"><span>Current stage</span><strong>${this.latestJob.currentStage ?? "complete"}</strong></div>
+                      <div class="meta-row">
+                        <span>ID</span>
+                        <strong>${this.latestJob.id}</strong>
+                      </div>
+                      <div class="meta-row">
+                        <span>Status</span>
+                        <strong class=${`status-pill ${this.latestJob.status}`}>${this.latestJob.status}</strong>
+                      </div>
+                      <div class="meta-row">
+                        <span>Total progress</span>
+                        <strong>${this.latestJob.totalProgress}%</strong>
+                      </div>
+                      <div class="meta-row">
+                        <span>Current stage</span>
+                        <strong>${this.latestJob.currentStage ?? "complete"}</strong>
+                      </div>
                     </div>
                   `
-                : html`<p>No upload has been submitted in this browser session yet.</p>`}
+                : html`
+                    <p>No upload has been submitted in this browser session yet.</p>
+                  `}
             </article>
           </section>
 
@@ -304,12 +337,35 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
             <div class="eyebrow">Workflow</div>
             <h2>Human and AI checkpoints</h2>
             <div class="workflow-list">
-              <div class="workflow-step"><strong>Human 1</strong><span>Pick the adventure, DM, players, characters, locations, NPCs, and previous events.</span></div>
-              <div class="workflow-step"><strong>AI</strong><span>Prepare audio, extract bullet points, and generate story artifacts, image prompt, lyrics, and song prompt.</span></div>
-              <div class="workflow-step"><strong>Human 2</strong><span>Approve a generated image after reviewing or editing the image prompt.</span></div>
-              <div class="workflow-step"><strong>Human 3</strong><span>Approve the lyrics and song prompt, then choose the final song.</span></div>
-              <div class="workflow-step"><strong>Human 4</strong><span>Publish the event to Contentful with linked adventure context and the embedded approved image.</span></div>
-              <div class="workflow-step"><strong>Human 5</strong><span>Send DM notes to Notion after Contentful publishing is complete.</span></div>
+              <div class="workflow-step">
+                <strong>Human 1</strong>
+                <span>Pick the adventure, DM, players, characters, locations, NPCs, and previous events.</span>
+              </div>
+              <div class="workflow-step">
+                <strong>AI</strong>
+                <span>
+                  Prepare audio, extract bullet points, and generate story artifacts, image prompt, lyrics, and song
+                  prompt.
+                </span>
+              </div>
+              <div class="workflow-step">
+                <strong>Human 2</strong>
+                <span>Approve a generated image after reviewing or editing the image prompt.</span>
+              </div>
+              <div class="workflow-step">
+                <strong>Human 3</strong>
+                <span>Approve the lyrics and song prompt, then choose the final song.</span>
+              </div>
+              <div class="workflow-step">
+                <strong>Human 4</strong>
+                <span>
+                  Publish the event to Contentful with linked adventure context and the embedded approved image.
+                </span>
+              </div>
+              <div class="workflow-step">
+                <strong>Human 5</strong>
+                <span>Send DM notes to Notion after Contentful publishing is complete.</span>
+              </div>
             </div>
           </section>
 
@@ -317,7 +373,9 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
             <div class="eyebrow">Recent Jobs</div>
             <h2>Most recent activity</h2>
             ${this.recentJobs.length === 0
-              ? html`<p>No recent jobs yet.</p>`
+              ? html`
+                  <p>No recent jobs yet.</p>
+                `
               : html`
                   <div class="recent-grid">
                     ${this.recentJobs.map(

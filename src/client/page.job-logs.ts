@@ -24,7 +24,11 @@ export class RpgChroniclerJobLogsPage extends RpgChroniclerAppProvider {
       }
 
       .panel {
-        background: linear-gradient(180deg, color-mix(in srgb, var(--color-secondary-surface) 95%, white), var(--color-secondary-surface));
+        background: linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--color-secondary-surface) 95%, white),
+          var(--color-secondary-surface)
+        );
         border-radius: 32px;
         padding: var(--size-large);
         box-shadow: var(--shadow-hover);
@@ -98,7 +102,9 @@ export class RpgChroniclerJobLogsPage extends RpgChroniclerAppProvider {
 
   override render(): TemplateResult {
     if (!this.job) {
-      return html`<main><p>Loading logs...</p></main>`;
+      return html`
+        <main><p>Loading logs...</p></main>
+      `;
     }
 
     return html`
@@ -110,7 +116,11 @@ export class RpgChroniclerJobLogsPage extends RpgChroniclerAppProvider {
         </section>
         <section class="panel">
           <div class="log-list">
-            ${this.job.logs.length === 0 ? html`<p>No logs yet.</p>` : this.job.logs.map((entry) => this.renderLog(entry))}
+            ${this.job.logs.length === 0
+              ? html`
+                  <p>No logs yet.</p>
+                `
+              : this.job.logs.map((entry) => this.renderLog(entry))}
           </div>
         </section>
       </main>

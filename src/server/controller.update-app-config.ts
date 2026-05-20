@@ -4,7 +4,12 @@ import { AbstractController } from "./main.controller.js";
 import { saveAppConfig } from "./util.app.js";
 
 export class UpdateAppConfigController extends AbstractController<AppConfig, UpdateAppConfigPathParameters, AppConfig> {
-  async handler({ bodyParams }: { bodyParams: AppConfig; pathParams: UpdateAppConfigPathParameters }): Promise<AppConfig> {
+  async handler({
+    bodyParams,
+  }: {
+    bodyParams: AppConfig;
+    pathParams: UpdateAppConfigPathParameters;
+  }): Promise<AppConfig> {
     const config = AppConfig.parse(bodyParams);
     await saveAppConfig(config);
     return config;

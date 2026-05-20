@@ -53,7 +53,7 @@ const DEFAULT_MODEL_CONFIG = {
   },
 } as const;
 
-function normalizeModelConfig(model: unknown) {
+function normalizeModelConfig(model: unknown): AppConfig["model"] {
   const base = typeof model === "object" && model !== null ? (model as Record<string, unknown>) : {};
   return {
     text: {

@@ -26,7 +26,13 @@ export class GenerateJobImageController extends AbstractController<NoBodyParams,
     const { buffer, mimeType } = await generateImageFromPrompt(prompt);
     await saveGeneratedImageAsset(pathParams.jobId, prompt, buffer, mimeType, "generated");
     await updateStage(pathParams.jobId, "image_generation", "completed", 100, "Generated a new image candidate.");
-    await updateStage(pathParams.jobId, "image_approval", "running", 50, "Review the image prompt and approve an image candidate.");
+    await updateStage(
+      pathParams.jobId,
+      "image_approval",
+      "running",
+      50,
+      "Review the image prompt and approve an image candidate.",
+    );
     return readJobDetail(pathParams.jobId);
   }
 }

@@ -9,6 +9,10 @@ export class GetContentfulCatalogService extends AbstractService<NoBodyParams, N
   readonly path = "/api/contentful/catalog";
 }
 
-export const getContentfulCatalogService = new GetContentfulCatalogService(NoBodyParams, NoPathParams, ContentfulCatalog);
+export const getContentfulCatalogService = new GetContentfulCatalogService(
+  NoBodyParams,
+  NoPathParams,
+  ContentfulCatalog,
+);
 
 export const GetContentfulCatalogQuery = z.object({});

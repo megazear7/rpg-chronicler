@@ -35,8 +35,16 @@ export class RpgChroniclerInstructionsPage extends RpgChroniclerAppProvider {
 
       .panel {
         background:
-          radial-gradient(circle at top right, color-mix(in srgb, var(--color-accent) 18%, transparent), transparent 38%),
-          linear-gradient(180deg, color-mix(in srgb, var(--color-secondary-surface) 96%, white), var(--color-secondary-surface));
+          radial-gradient(
+            circle at top right,
+            color-mix(in srgb, var(--color-accent) 18%, transparent),
+            transparent 38%
+          ),
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--color-secondary-surface) 96%, white),
+            var(--color-secondary-surface)
+          );
         border-radius: 32px;
         padding: var(--size-large);
         box-shadow: var(--shadow-hover);
@@ -70,10 +78,13 @@ export class RpgChroniclerInstructionsPage extends RpgChroniclerAppProvider {
     const previewContextText = this.buildPreviewContextText();
     return html`
       <main>
-        <section class="panel">
+        <section>
           <a href="/">${leftArrowIcon} Home</a>
           <h1>Workflow Configuration</h1>
-          <p>Manage the reusable writing instructions and the default adventure context used before a newer submission has been recorded.</p>
+          <p>
+            Manage the reusable writing instructions and the default adventure context used before a newer submission
+            has been recorded.
+          </p>
         </section>
 
         <div class="stack">
@@ -81,8 +92,7 @@ export class RpgChroniclerInstructionsPage extends RpgChroniclerAppProvider {
             .catalog=${this.catalog}
             .selection=${this.selectionDraft}
             .searchBeforeListingQueries=${["locations", "npcs", "previousEvents"]}
-            @selection-change=${this.handleSelectionChange}>
-          </rpg-chronicler-contentful-selection-editor>
+            @selection-change=${this.handleSelectionChange}></rpg-chronicler-contentful-selection-editor>
 
           <rpg-chronicler-instructions-editor
             .config=${normalizeInstructionConfig(this.appContext.app?.instructions)}
@@ -91,7 +101,9 @@ export class RpgChroniclerInstructionsPage extends RpgChroniclerAppProvider {
         </div>
 
         <section class="panel actions">
-          <button ?disabled=${this.saving} @click=${this.handleSave}>${this.saving ? "Saving..." : "Save workflow defaults"}</button>
+          <button ?disabled=${this.saving} @click=${this.handleSave}>
+            ${this.saving ? "Saving..." : "Save workflow defaults"}
+          </button>
         </section>
       </main>
     `;
@@ -130,7 +142,10 @@ export class RpgChroniclerInstructionsPage extends RpgChroniclerAppProvider {
       };
       dispatch(this, SuccessEvent("Workflow defaults saved."));
     } catch (error) {
-      dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to save instruction configuration."));
+      dispatch(
+        this,
+        WarningEvent(error instanceof Error ? error.message : "Unable to save instruction configuration."),
+      );
     } finally {
       this.saving = false;
     }

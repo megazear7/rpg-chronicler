@@ -78,6 +78,7 @@ export class RpgChroniclerInstructionsEditor extends LitElement {
         white-space: pre-wrap;
         margin: 0;
         font: inherit;
+        margin-top: var(--size-large);
       }
 
       .readonly-intro {
@@ -101,7 +102,9 @@ export class RpgChroniclerInstructionsEditor extends LitElement {
   }
 
   override render(): TemplateResult {
-    const previewSections = [this.getComputedInstructions(), this.previewContextText.trim()].filter((section) => section.length > 0);
+    const previewSections = [this.getComputedInstructions(), this.previewContextText.trim()].filter(
+      (section) => section.length > 0,
+    );
 
     return html`
       <section class="section">
@@ -118,7 +121,9 @@ export class RpgChroniclerInstructionsEditor extends LitElement {
                 <textarea .value=${this.draft.intro} @input=${this.handleIntroInput}></textarea>
               </label>
             `
-          : html`<div class="readonly-intro">${this.draft.intro}</div>`}
+          : html`
+              <div class="readonly-intro">${this.draft.intro}</div>
+            `}
       </section>
 
       <section class="preview">

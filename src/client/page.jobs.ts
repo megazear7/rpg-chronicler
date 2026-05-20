@@ -38,8 +38,16 @@ export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
 
       .job-card {
         background:
-          radial-gradient(circle at top right, color-mix(in srgb, var(--color-accent) 16%, transparent), transparent 36%),
-          linear-gradient(180deg, color-mix(in srgb, var(--color-secondary-surface) 97%, white), var(--color-secondary-surface));
+          radial-gradient(
+            circle at top right,
+            color-mix(in srgb, var(--color-accent) 16%, transparent),
+            transparent 36%
+          ),
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--color-secondary-surface) 97%, white),
+            var(--color-secondary-surface)
+          );
         border-radius: 32px;
         padding: var(--size-large);
         box-shadow: var(--shadow-hover);
@@ -56,7 +64,9 @@ export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
 
       .job-card:hover {
         color: var(--color-primary-text);
-        box-shadow: var(--shadow-hover), 0 0 0 1px color-mix(in srgb, var(--color-primary-text) 12%, transparent);
+        box-shadow:
+          var(--shadow-hover),
+          0 0 0 1px color-mix(in srgb, var(--color-primary-text) 12%, transparent);
         border-color: color-mix(in srgb, var(--color-accent) 36%, transparent);
       }
 
@@ -147,11 +157,11 @@ export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
         </div>
 
         ${!this.jobs || this.jobs.items.length === 0
-          ? html`<div class="empty">No jobs have been created yet.</div>`
+          ? html`
+              <div class="empty">No jobs have been created yet.</div>
+            `
           : html`
-              <section class="grid">
-                ${this.jobs.items.map((job) => this.renderJob(job))}
-              </section>
+              <section class="grid">${this.jobs.items.map((job) => this.renderJob(job))}</section>
             `}
       </main>
     `;
@@ -161,11 +171,20 @@ export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
     return html`
       <a class="job-card" href=${`/jobs/${job.id}`}>
         <div>
-          <div class="stage-row"><strong>${job.file}</strong><span class=${`status-pill ${job.status}`}>${job.status}</span></div>
-          <div class="status-row"><span>Current stage</span><span>${job.currentStage ?? "complete"}</span></div>
+          <div class="stage-row">
+            <strong>${job.file}</strong>
+            <span class=${`status-pill ${job.status}`}>${job.status}</span>
+          </div>
+          <div class="status-row">
+            <span>Current stage</span>
+            <span>${job.currentStage ?? "complete"}</span>
+          </div>
         </div>
         <div class="progress"><div class="progress-bar" style=${`width:${job.totalProgress}%`}></div></div>
-        <div class="status-row"><span>Total progress</span><span>${job.totalProgress}%</span></div>
+        <div class="status-row">
+          <span>Total progress</span>
+          <span>${job.totalProgress}%</span>
+        </div>
       </a>
     `;
   }

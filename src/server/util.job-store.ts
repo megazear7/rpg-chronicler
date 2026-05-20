@@ -13,6 +13,7 @@ import {
   JobContentful,
   JobDetail,
   JobImageState,
+  JobImageAsset,
   JobLogEntry,
   JobLogLevel,
   JobNotionState,
@@ -136,10 +137,10 @@ function deriveCurrentStage(job: JobIndex): JobStageName | null {
 
 function normalizeStages(stages: unknown): JobStage[] {
   const existing = Array.isArray(stages) ? stages : [];
-  const stageMap = new Map<string, any>();
+  const stageMap = new Map<string, Partial<JobStage> & Pick<JobStage, "name">>();
   for (const stage of existing) {
     if (stage && typeof stage === "object" && typeof (stage as { name?: string }).name === "string") {
-      stageMap.set((stage as { name: string }).name, stage);
+      stageMap.set((stage as { name: string }).name, stage as Partial<JobStage> & Pick<JobStage, "name">);
     }
   }
 
@@ -149,7 +150,11 @@ function normalizeStages(stages: unknown): JobStage[] {
     }
 
     const candidate = stage as { status?: unknown; progress?: unknown };
-    return candidate.status === JobStageStatus.enum.running || candidate.status === JobStageStatus.enum.completed || typeof candidate.progress === "number" && candidate.progress > 0;
+    return (
+      candidate.status === JobStageStatus.enum.running ||
+      candidate.status === JobStageStatus.enum.completed ||
+      (typeof candidate.progress === "number" && candidate.progress > 0)
+    );
   });
 
   return jobStageOrder.map((name) => {
@@ -162,7 +167,9 @@ function normalizeStages(stages: unknown): JobStage[] {
       status: base?.status ?? (inferredConfigureContext ? JobStageStatus.enum.completed : JobStageStatus.enum.pending),
       progress: base?.progress ?? (inferredConfigureContext ? 100 : 0),
       updatedAt: base?.updatedAt ?? now(),
-      message: base?.message ?? (inferredConfigureContext ? "Legacy job imported before context selection existed." : undefined),
+      message:
+        base?.message ??
+        (inferredConfigureContext ? "Legacy job imported before context selection existed." : undefined),
     });
   });
 }
@@ -198,13 +205,26 @@ function hydrateJob(job: JobIndex): JobIndex {
   hydrated.status = deriveJobStatus(hydrated);
   hydrated.currentStage = deriveCurrentStage(hydrated);
   hydrated.contentful.status =
-    hydrated.contentful.entryId && hydrated.contentful.entryUrl ? "sent" : hasContentfulInputs(hydrated) ? "ready" : "not_ready";
+    hydrated.contentful.entryId && hydrated.contentful.entryUrl
+      ? "sent"
+      : hasContentfulInputs(hydrated)
+        ? "ready"
+        : "not_ready";
   return hydrated;
 }
 
 function hasContentfulInputs(job: JobIndex): boolean {
-  const approvedImage = job.image.generatedAssets.find((asset) => asset.id === job.image.selectedAssetId && asset.approvedAt);
-  return Boolean(job.contentful.title && job.contentful.summary && job.contentful.story && job.contentful.dmNotes && approvedImage && job.song.songUrl);
+  const approvedImage = job.image.generatedAssets.find(
+    (asset) => asset.id === job.image.selectedAssetId && asset.approvedAt,
+  );
+  return Boolean(
+    job.contentful.title &&
+    job.contentful.summary &&
+    job.contentful.story &&
+    job.contentful.dmNotes &&
+    approvedImage &&
+    job.song.songUrl,
+  );
 }
 
 async function ensureDir(dirPath: string): Promise<void> {
@@ -255,7 +275,11 @@ export function getArtifactVersionsDir(jobId: string, key: ArtifactKey): string 
   return path.join(getArtifactDir(jobId, key), "versions");
 }
 
-export async function createJob(fileName: string, instructionsText: string, submission: ContentfulSubmissionSnapshot | null): Promise<JobIndex> {
+export async function createJob(
+  fileName: string,
+  instructionsText: string,
+  submission: ContentfulSubmissionSnapshot | null,
+): Promise<JobIndex> {
   const id = randomUUID();
   const timestamp = now();
   const job = hydrateJob(
@@ -301,7 +325,10 @@ export async function readJob(jobId: string): Promise<JobIndex> {
   return hydrateJob(normalizeJob(JSON.parse(file)));
 }
 
-export async function updateJob(jobId: string, updater: (job: JobIndex) => JobIndex | Promise<JobIndex>): Promise<JobIndex> {
+export async function updateJob(
+  jobId: string,
+  updater: (job: JobIndex) => JobIndex | Promise<JobIndex>,
+): Promise<JobIndex> {
   const current = await readJob(jobId);
   const next = await updater(current);
   return writeJob(next);
@@ -328,7 +355,7 @@ export async function updateStage(
     );
     return JobIndex.parse({
       ...job,
-      errorMessage: status === JobStageStatus.enum.failed ? message ?? job.errorMessage : job.errorMessage,
+      errorMessage: status === JobStageStatus.enum.failed ? (message ?? job.errorMessage) : job.errorMessage,
       stages: updatedStages,
     });
   });
@@ -420,7 +447,8 @@ export async function saveArtifactVersion(
       return ArtifactSummary.parse({
         ...artifact,
         activeVersionId: version.id,
-        generatedVersionId: source === "generated" && artifact.generatedVersionId === null ? version.id : artifact.generatedVersionId,
+        generatedVersionId:
+          source === "generated" && artifact.generatedVersionId === null ? version.id : artifact.generatedVersionId,
         versionCount: artifact.versionCount + 1,
         updatedAt: version.createdAt,
       });
@@ -480,7 +508,8 @@ async function syncArtifactSummary(jobId: string, key: ArtifactKey, versions: Ar
       if (artifact.key !== key) {
         return artifact;
       }
-      const generatedVersion = versions.find((version) => version.id === artifact.generatedVersionId && !version.deletedAt) ?? null;
+      const generatedVersion =
+        versions.find((version) => version.id === artifact.generatedVersionId && !version.deletedAt) ?? null;
       return ArtifactSummary.parse({
         ...artifact,
         activeVersionId: latestActiveVersion?.id ?? null,
@@ -514,7 +543,9 @@ export async function readArtifact(jobId: string, key: ArtifactKey): Promise<Art
     throw new Error(`Artifact ${key} not found.`);
   }
   const versions = await listArtifactVersions(jobId, key);
-  const activeVersion = summary.activeVersionId ? versions.find((version) => version.id === summary.activeVersionId) ?? null : null;
+  const activeVersion = summary.activeVersionId
+    ? (versions.find((version) => version.id === summary.activeVersionId) ?? null)
+    : null;
   return ArtifactDetail.parse({
     ...summary,
     activeVersion,
@@ -527,7 +558,11 @@ export async function editArtifact(jobId: string, key: ArtifactKey, text: string
   return readArtifact(jobId, key);
 }
 
-export async function activateArtifactVersion(jobId: string, key: ArtifactKey, versionId: string): Promise<ArtifactDetail> {
+export async function activateArtifactVersion(
+  jobId: string,
+  key: ArtifactKey,
+  versionId: string,
+): Promise<ArtifactDetail> {
   const version = await readArtifactVersion(jobId, key, versionId);
   if (version.deletedAt) {
     throw new Error("Cannot activate a deleted artifact version.");
@@ -563,13 +598,21 @@ export async function activateArtifactVersion(jobId: string, key: ArtifactKey, v
   return readArtifact(jobId, key);
 }
 
-export async function deleteArtifactVersion(jobId: string, key: ArtifactKey, versionId: string): Promise<ArtifactDetail> {
+export async function deleteArtifactVersion(
+  jobId: string,
+  key: ArtifactKey,
+  versionId: string,
+): Promise<ArtifactDetail> {
   const version = await readArtifactVersion(jobId, key, versionId);
   const deletedVersion = ArtifactVersion.parse({
     ...version,
     deletedAt: now(),
   });
-  await fs.writeFile(path.join(getArtifactVersionsDir(jobId, key), `${versionId}.json`), JSON.stringify(deletedVersion, null, 2), "utf-8");
+  await fs.writeFile(
+    path.join(getArtifactVersionsDir(jobId, key), `${versionId}.json`),
+    JSON.stringify(deletedVersion, null, 2),
+    "utf-8",
+  );
   const versions = await listArtifactVersions(jobId, key);
   await syncArtifactSummary(jobId, key, versions);
   return readArtifact(jobId, key);
@@ -605,7 +648,7 @@ export async function saveGeneratedImageAsset(
   buffer: Buffer,
   mimeType: string,
   source: "generated" | "uploaded" = "generated",
-) {
+): Promise<JobImageAsset> {
   const id = randomUUID();
   const createdAt = now();
   const fileName = `${id}${extensionForMimeType(mimeType)}`;
@@ -657,7 +700,12 @@ export async function approveImageAsset(jobId: string, assetId: string): Promise
   return readJobDetail(jobId);
 }
 
-export async function selectSong(jobId: string, songUrl: string, provider: "manual" | "suno" = "manual", externalSongId?: string | null) {
+export async function selectSong(
+  jobId: string,
+  songUrl: string,
+  provider: "manual" | "suno" = "manual",
+  externalSongId?: string | null,
+): Promise<JobIndex> {
   const selectedAt = now();
   const updated = await updateJob(jobId, (job) =>
     JobIndex.parse({
@@ -672,11 +720,17 @@ export async function selectSong(jobId: string, songUrl: string, provider: "manu
       },
     }),
   );
-  await updateStage(jobId, "song_approval", "completed", 100, provider === "suno" ? "Suno song selected." : "Song selected.");
+  await updateStage(
+    jobId,
+    "song_approval",
+    "completed",
+    100,
+    provider === "suno" ? "Suno song selected." : "Song selected.",
+  );
   return updated;
 }
 
-export async function markNotionReady(jobId: string) {
+export async function markNotionReady(jobId: string): Promise<JobIndex> {
   return updateJob(jobId, (job) =>
     JobIndex.parse({
       ...job,

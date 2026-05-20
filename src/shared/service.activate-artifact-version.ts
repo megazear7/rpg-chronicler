@@ -10,7 +10,11 @@ export const ArtifactVersionPathParameters = z.object({
 });
 export type ArtifactVersionPathParameters = z.infer<typeof ArtifactVersionPathParameters>;
 
-export class ActivateArtifactVersionService extends AbstractService<NoBodyParams, ArtifactVersionPathParameters, ArtifactDetail> {
+export class ActivateArtifactVersionService extends AbstractService<
+  NoBodyParams,
+  ArtifactVersionPathParameters,
+  ArtifactDetail
+> {
   readonly type = ServiceType.enum.json;
   readonly method = HttpMethod.enum.post;
   readonly path = "/api/jobs/:jobId/artifacts/:artifactKey/versions/:versionId/activate";

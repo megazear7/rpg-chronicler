@@ -22,7 +22,9 @@ export function normalizeSubmissionSelection(
 }
 
 function findTitle<T extends { id: string; title: string }>(items: T[], ids: string[]): string[] {
-  return ids.map((id) => items.find((item) => item.id === id)?.title).filter((value): value is string => Boolean(value));
+  return ids
+    .map((id) => items.find((item) => item.id === id)?.title)
+    .filter((value): value is string => Boolean(value));
 }
 
 export function resolveSelectedCharacterAssignments(
@@ -33,7 +35,10 @@ export function resolveSelectedCharacterAssignments(
     return [];
   }
 
-  const assignmentByCharacterId = new Map(selection.characterAssignments.map((entry) => [entry.characterId, entry.playerId]));
+  const assignmentByCharacterId = new Map(
+    selection.characterAssignments.map((entry) => [entry.characterId, entry.playerId]),
+  );
+  const availablePlayerIds = new Set(catalog.players.map((entry) => entry.id));
   const selectedCharacters = selection.characterIds
     .map((characterId) => catalog.characters.find((entry) => entry.id === characterId) ?? null)
     .filter((entry): entry is ContentfulCharacterReference => Boolean(entry));
@@ -44,7 +49,12 @@ export function resolveSelectedCharacterAssignments(
 
   if (legacyPlayerIds.length > 0) {
     for (const character of selectedCharacters) {
-      if (assignmentByCharacterId.has(character.id) || !character.playerId || !legacyPlayerIds.includes(character.playerId) || usedLegacyPlayerIds.has(character.playerId)) {
+      if (
+        assignmentByCharacterId.has(character.id) ||
+        !character.playerId ||
+        !legacyPlayerIds.includes(character.playerId) ||
+        usedLegacyPlayerIds.has(character.playerId)
+      ) {
         continue;
       }
       preservedDefaultAssignments.set(character.id, character.playerId);
@@ -57,19 +67,27 @@ export function resolveSelectedCharacterAssignments(
 
   return selectedCharacters.map((character) => {
     let playerId: string | null;
+    const explicitAssignment = assignmentByCharacterId.get(character.id);
+    const hasExplicitAssignment = assignmentByCharacterId.has(character.id);
+    const hasValidExplicitAssignment =
+      typeof explicitAssignment === "string" && availablePlayerIds.has(explicitAssignment);
 
-    if (assignmentByCharacterId.has(character.id)) {
-      playerId = assignmentByCharacterId.get(character.id) ?? null;
+    if (hasExplicitAssignment && explicitAssignment === null) {
+      playerId = null;
+    } else if (hasValidExplicitAssignment) {
+      playerId = explicitAssignment;
     } else if (preservedDefaultAssignments.has(character.id)) {
       playerId = preservedDefaultAssignments.get(character.id) ?? null;
     } else if (legacyPlayerIds.length > 0) {
       playerId = remainingLegacyPlayerIds[remainingLegacyIndex] ?? null;
       remainingLegacyIndex += 1;
+    } else if (character.playerId && availablePlayerIds.has(character.playerId)) {
+      playerId = character.playerId;
     } else {
       playerId = character.playerId ?? null;
     }
 
-    const player = playerId ? catalog.players.find((entry) => entry.id === playerId) ?? null : null;
+    const player = playerId ? (catalog.players.find((entry) => entry.id === playerId) ?? null) : null;
     return { character, player };
   });
 }
@@ -115,7 +133,7 @@ export function buildSelectionPreviewText(
 
   const sections: string[] = [];
   const gameMaster = selection.gameMasterPlayerId
-    ? catalog.players.find((player) => player.id === selection.gameMasterPlayerId)?.title ?? null
+    ? (catalog.players.find((player) => player.id === selection.gameMasterPlayerId)?.title ?? null)
     : null;
   const characterAssignments = resolveSelectedCharacterAssignments(catalog, selection);
   const players = resolveSelectedPlayers(catalog, selection).map((player) => player.title);
@@ -129,7 +147,9 @@ export function buildSelectionPreviewText(
     sections.push(`Players: ${players.join(", ")}`);
   }
   if (characterAssignments.length > 0) {
-    sections.push(`Characters:\n${characterAssignments.map(({ character, player }) => formatCharacterAssignmentLine(character, player)).join("\n")}`);
+    sections.push(
+      `Characters:\n${characterAssignments.map(({ character, player }) => formatCharacterAssignmentLine(character, player)).join("\n")}`,
+    );
   }
   if (locations.length > 0) {
     sections.push(`Locations: ${locations.join(", ")}`);

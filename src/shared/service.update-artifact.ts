@@ -9,7 +9,11 @@ export const UpdateArtifactBodyParameters = z.object({
 });
 export type UpdateArtifactBodyParameters = z.infer<typeof UpdateArtifactBodyParameters>;
 
-export class UpdateArtifactService extends AbstractService<UpdateArtifactBodyParameters, ArtifactPathParameters, ArtifactDetail> {
+export class UpdateArtifactService extends AbstractService<
+  UpdateArtifactBodyParameters,
+  ArtifactPathParameters,
+  ArtifactDetail
+> {
   readonly type = ServiceType.enum.json;
   readonly method = HttpMethod.enum.put;
   readonly path = "/api/jobs/:jobId/artifacts/:artifactKey";

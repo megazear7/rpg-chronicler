@@ -10,16 +10,17 @@ export class RpgChroniclerTooltip extends LitElement {
       :host {
         position: relative;
         display: inline-block;
+        width: 100%;
       }
 
       .trigger {
         display: inline-block;
+        width: 100%;
       }
 
       .tooltip {
         position: fixed;
-        max-width: var(--size-7x);
-        text-align: center;
+        max-width: min(22rem, calc(100vw - 2rem));
         background-color: var(--color-secondary-surface);
         color: var(--color-primary-text);
         padding: var(--size-small) var(--size-medium);
@@ -53,6 +54,11 @@ export class RpgChroniclerTooltip extends LitElement {
         opacity: 0;
         visibility: hidden;
         transform: translateX(-50%) translateY(10px);
+      }
+
+      .tooltip-body {
+        display: grid;
+        gap: var(--size-small);
       }
     `,
   ];
@@ -100,17 +106,27 @@ export class RpgChroniclerTooltip extends LitElement {
     }
   }
 
+  private handleFocusIn(): void {
+    this.handleMouseEnter();
+  }
+
+  private handleFocusOut(): void {
+    this.handleMouseLeave();
+  }
+
   private updatePosition(): void {
     if (!this.triggerElement || !this.tooltipElement) return;
 
     const rect = this.triggerElement.getBoundingClientRect();
+    const tooltipRect = this.tooltipElement.getBoundingClientRect();
+    const gap = 12;
 
-    // Position above the trigger, centered horizontally
-    const top = rect.top - this.offsetY; // Estimate tooltip height + gap
-    const left = rect.left + rect.width / 2 - 75; // Half of 150px width
+    const top = rect.top - tooltipRect.height - (this.offsetY || gap);
+    const left = rect.left + rect.width / 2 - tooltipRect.width / 2;
 
-    this.tooltipElement.style.top = `${Math.max(10, top)}px`; // Keep it on screen
-    this.tooltipElement.style.left = `${Math.max(10, left)}px`; // Keep it on screen
+    const maxLeft = window.innerWidth - tooltipRect.width - 10;
+    this.tooltipElement.style.top = `${Math.max(10, top)}px`;
+    this.tooltipElement.style.left = `${Math.min(Math.max(10, left), Math.max(10, maxLeft))}px`;
   }
 
   private clearTimeouts(): void {
@@ -131,10 +147,19 @@ export class RpgChroniclerTooltip extends LitElement {
 
   override render(): TemplateResult {
     return html`
-      <span class="trigger" @mouseenter=${this.handleMouseEnter} @mouseleave=${this.handleMouseLeave}>
+      <span
+        class="trigger"
+        @mouseenter=${this.handleMouseEnter}
+        @mouseleave=${this.handleMouseLeave}
+        @focusin=${this.handleFocusIn}
+        @focusout=${this.handleFocusOut}>
         <slot></slot>
       </span>
-      <div class="tooltip ${this.visible ? "visible" : ""}" style="position: fixed;">${this.content}</div>
+      <div class="tooltip ${this.visible ? "visible" : ""}" style="position: fixed;">
+        <div class="tooltip-body">
+          <slot name="content">${this.content}</slot>
+        </div>
+      </div>
     `;
   }
 }

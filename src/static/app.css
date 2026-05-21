@@ -16,6 +16,12 @@ html {
   --color-secondary-text-muted: #8d99a8;
   --color-secondary-text-bold: #cad5e4;
 
+  /* Tertiary surface colors */
+  --color-tertiary-surface: #8294a9;
+  --color-tertiary-text: #242b35;
+  --color-tertiary-text-muted: #37404d;
+  --color-tertiary-text-bold: #0e1116;
+
   /* Additional colors */
   --color-accent: #58b3ff;
   --color-error: #ff5c5c;

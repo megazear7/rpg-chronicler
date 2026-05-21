@@ -21,15 +21,15 @@ export class SendJobToContentfulController extends AbstractController<NoBodyPara
     ) {
       throw new RouteError(400, "Title, summary, story, and DM notes must be available before sending to Contentful.");
     }
-    const selectedImage = current.image.generatedAssets.find(
-      (asset) => asset.id === current.image.selectedAssetId && asset.approvedAt,
-    );
-    if (!selectedImage) {
-      throw new RouteError(400, "Approve an image before sending this event to Contentful.");
-    }
     if (!current.song.songUrl) {
       throw new RouteError(400, "Choose a song before sending this event to Contentful.");
     }
+
+    if (current.stages.find((stage) => stage.name === "image_approval")?.status !== "completed") {
+      throw new RouteError(400, "Approve or reject all generated images before sending this event to Contentful.");
+    }
+
+    const approvedImages = current.image.generatedAssets.filter((asset) => asset.approvedAt && !asset.rejectedAt);
 
     await updateJob(pathParams.jobId, (job) => ({
       ...job,
@@ -53,8 +53,10 @@ export class SendJobToContentfulController extends AbstractController<NoBodyPara
       year: current.submission?.selection.year ?? null,
       month: current.submission?.selection.month ?? null,
       day: current.submission?.selection.day ?? null,
-      imagePath: getJobImagePath(pathParams.jobId, selectedImage.fileName),
-      imageMimeType: selectedImage.mimeType,
+      images: approvedImages.map((image) => ({
+        imagePath: getJobImagePath(pathParams.jobId, image.fileName),
+        imageMimeType: image.mimeType,
+      })),
     });
 
     await updateJob(pathParams.jobId, (job) => ({

@@ -347,7 +347,7 @@ function assetLink(assetId: string): Record<string, unknown> {
   };
 }
 
-function textToRichTextWithEmbeddedImage(text: string, embeddedAssetId?: string | null): Record<string, unknown> {
+function textToRichTextWithEmbeddedImages(text: string, embeddedAssetIds: string[] = []): Record<string, unknown> {
   const paragraphs = text
     .split("\n")
     .map((line) => line.trim())
@@ -365,7 +365,7 @@ function textToRichTextWithEmbeddedImage(text: string, embeddedAssetId?: string 
       ],
     }));
 
-  if (!embeddedAssetId) {
+  if (embeddedAssetIds.length === 0) {
     return {
       nodeType: "document",
       data: {},
@@ -373,17 +373,19 @@ function textToRichTextWithEmbeddedImage(text: string, embeddedAssetId?: string 
     };
   }
 
-  const embeddedNode = {
-    nodeType: "embedded-asset-block",
-    data: {
-      target: assetLink(embeddedAssetId),
-    },
-    content: [],
-  };
-
   const content = [...paragraphs];
   const insertIndex = Math.min(2, content.length);
-  content.splice(insertIndex, 0, embeddedNode);
+  content.splice(
+    insertIndex,
+    0,
+    ...embeddedAssetIds.map((embeddedAssetId) => ({
+      nodeType: "embedded-asset-block",
+      data: {
+        target: assetLink(embeddedAssetId),
+      },
+      content: [],
+    })),
+  );
   return {
     nodeType: "document",
     data: {},
@@ -599,29 +601,28 @@ export async function createContentfulEvent(input: {
   year?: number | null;
   month?: string | null;
   day?: number | null;
-  imagePath?: string | null;
-  imageMimeType?: string | null;
-}): Promise<{ entryId: string; entryUrl: string; assetId: string | null; assetUrl: string | null }> {
+  images?: Array<{ imagePath: string; imageMimeType: string }>;
+}): Promise<{ entryId: string; entryUrl: string; assetIds: string[]; assetUrls: string[] }> {
   const environment = await getContentfulEnvironment();
   const eventDate = await deriveEventDate(environment, input.adventureId, {
     year: input.year,
     month: input.month,
     day: input.day,
   });
-  let assetId: string | null = null;
-  let assetUrl: string | null = null;
-  if (input.imagePath && input.imageMimeType) {
-    const uploaded = await uploadContentfulImage(environment, input.title, input.imagePath, input.imageMimeType);
-    assetId = uploaded.assetId;
-    assetUrl = uploaded.assetUrl;
-  }
+  const uploadedAssets = await Promise.all(
+    (input.images ?? []).map(({ imagePath, imageMimeType }) =>
+      uploadContentfulImage(environment, input.title, imagePath, imageMimeType),
+    ),
+  );
+  const assetIds = uploadedAssets.map((asset) => asset.assetId);
+  const assetUrls = uploadedAssets.map((asset) => asset.assetUrl).filter((value): value is string => Boolean(value));
 
   const entry = await environment.createEntry("event", {
     fields: {
       title: { [LOCALE]: input.title },
       songUrl: { [LOCALE]: input.songUrl ?? "" },
       summary: { [LOCALE]: textToRichText(input.summary) },
-      description: { [LOCALE]: textToRichTextWithEmbeddedImage(input.description, assetId) },
+      description: { [LOCALE]: textToRichTextWithEmbeddedImages(input.description, assetIds) },
       dmNotes: { [LOCALE]: textToRichText(input.dmNotes) },
       year: eventDate.year ? { [LOCALE]: eventDate.year } : undefined,
       month: eventDate.month ? { [LOCALE]: eventDate.month } : undefined,
@@ -640,7 +641,7 @@ export async function createContentfulEvent(input: {
   return {
     entryId: entry.sys.id,
     entryUrl: `https://app.contentful.com/spaces/${env.CONTENTFUL_SPACE_ID}/entries/${entry.sys.id}`,
-    assetId,
-    assetUrl,
+    assetIds,
+    assetUrls,
   };
 }

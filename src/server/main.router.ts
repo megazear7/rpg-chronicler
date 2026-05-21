@@ -18,10 +18,12 @@ import { activateArtifactVersionController } from "./controller.activate-artifac
 import { deleteArtifactVersionController } from "./controller.delete-artifact-version.js";
 import { generateJobImageController } from "./controller.generate-job-image.js";
 import { approveJobImageController } from "./controller.approve-job-image.js";
+import { rejectJobImageController } from "./controller.reject-job-image.js";
 import { selectJobSongController } from "./controller.select-job-song.js";
 import { sendJobToContentfulController } from "./controller.send-job-to-contentful.js";
 import { sendJobToNotionController } from "./controller.send-job-to-notion.js";
 import { registerJobImages } from "./controller.job-images.js";
+import { registerJobAudio } from "./controller.job-audio.js";
 import { restartJobController } from "./controller.restart-job.js";
 
 const router = express.Router();
@@ -44,11 +46,13 @@ activateArtifactVersionController.register(router);
 deleteArtifactVersionController.register(router);
 generateJobImageController.register(router);
 approveJobImageController.register(router);
+rejectJobImageController.register(router);
 selectJobSongController.register(router);
 sendJobToContentfulController.register(router);
 sendJobToNotionController.register(router);
 restartJobController.register(router);
 registerJobImages(router);
+registerJobAudio(router);
 registerJobStreams(router);
 
 export { router };

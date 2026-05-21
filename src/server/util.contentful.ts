@@ -1,6 +1,7 @@
 import path from "path";
 import { promises as fs } from "fs";
 import pkg from "contentful-management";
+import type { Environment, Space } from "contentful-management";
 import { env } from "./main.env.js";
 import {
   ContentfulCatalog,
@@ -32,7 +33,7 @@ const MONTH_NAMES = [
   "December",
 ] as const;
 
-type ContentfulEnvironment = Awaited<ReturnType<Awaited<ReturnType<typeof getContentfulSpace>>["getEnvironment"]>>;
+type ContentfulEnvironment = Environment;
 
 type LocalizedValue<T> = Partial<Record<typeof LOCALE, T>>;
 type ContentfulFields = Record<string, LocalizedValue<unknown> | undefined>;
@@ -110,7 +111,7 @@ function includesQuery(value: string | null | undefined, query: string): boolean
   return (value ?? "").toLowerCase().includes(query);
 }
 
-async function getContentfulSpace(): Promise<Awaited<ReturnType<ReturnType<typeof createClient>["getSpace"]>>> {
+async function getContentfulSpace(): Promise<Space> {
   const client = createClient({
     accessToken: env.CONTENTFUL_MANAGEMENT_API_KEY,
   });
@@ -246,6 +247,12 @@ function compareEventDates(
   return leftTime - rightTime;
 }
 
+type AdventureEventDate = {
+  year: number;
+  month: string;
+  day: number;
+};
+
 async function deriveEventDate(
   environment: ContentfulEnvironment,
   adventureId: string | null | undefined,
@@ -268,21 +275,25 @@ async function deriveEventDate(
     listEntries(environment, "event"),
   ]);
   const reverseLinkedIds = new Set(getLinkIds(adventure.fields.events?.[LOCALE]));
-  const adventureEvents = allEvents
+  const adventureEvents: AdventureEventDate[] = allEvents
     .filter(
-      (entry) => getLinkId(entry.fields.adventure?.[LOCALE]) === adventureId || reverseLinkedIds.has(entry.sys.id),
+      (entry: ContentfulEntryLike) =>
+        getLinkId(entry.fields.adventure?.[LOCALE]) === adventureId || reverseLinkedIds.has(entry.sys.id),
     )
-    .map((entry) => ({
+    .map((entry: ContentfulEntryLike) => ({
       year: getNumberField(entry.fields, "year"),
       month: getTextField(entry.fields, "month"),
       day: getNumberField(entry.fields, "day"),
     }))
-    .filter((entry) => entry.year !== null && parseMonthIndex(entry.month) !== null && entry.day !== null);
+    .filter(
+      (entry): entry is AdventureEventDate =>
+        entry.year !== null && parseMonthIndex(entry.month) !== null && entry.day !== null,
+    );
 
   const sortedAdventureEvents = adventureEvents.sort((left, right) => compareEventDates(left, right));
   const latestEvent = sortedAdventureEvents.length > 0 ? sortedAdventureEvents[sortedAdventureEvents.length - 1] : null;
   const derived = latestEvent
-    ? nextCalendarDay({ year: latestEvent.year!, month: latestEvent.month!, day: latestEvent.day! })
+    ? nextCalendarDay({ year: latestEvent.year, month: latestEvent.month, day: latestEvent.day })
     : null;
 
   return {

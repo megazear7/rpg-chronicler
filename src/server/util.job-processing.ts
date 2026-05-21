@@ -7,12 +7,15 @@ import { getAppConfig } from "./util.app.js";
 import { getTextCompletion } from "./util.submit-prompt.js";
 import { loadAudioClient } from "./util.model.js";
 import { DEFAULT_INSTRUCTION_CONFIG, InstructionConfig } from "../shared/type.instructions.js";
+import { ArtifactKey, JobIndex, JobStageName, JobStageStatus } from "../shared/type.job.js";
 import {
   appendJobLog,
   failJob,
   getJobProgressDir,
   getJobSourceDir,
+  readArtifact,
   readJob,
+  resetJobForRestart,
   saveGeneratedImageAsset,
   saveArtifactVersion,
   updateJob,
@@ -52,8 +55,37 @@ const SONG_MODIFIERS = [
 
 const ACCEPTED_AUDIO_TYPES = new Set(["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/mp4a-latm"]);
 const ACCEPTED_AUDIO_EXTENSIONS = new Set([".mp3", ".m4a"]);
+const RESTARTABLE_STAGE_ORDER: JobStageName[] = [
+  "prepare_audio",
+  "bullet_points",
+  "play_by_play",
+  "dm_notes",
+  "summary",
+  "story",
+  "title",
+  "image_prompt",
+  "image_generation",
+  "lyrics",
+  "song_prompt",
+];
 
 export async function startJobProcessing(jobId: string, sourcePath: string): Promise<void> {
+  queueJobProcessing(jobId, sourcePath);
+}
+
+export async function restartFailedJobProcessing(jobId: string): Promise<void> {
+  const job = await readJob(jobId);
+  const failedStage = getRestartableFailedStage(job);
+  if (!failedStage) {
+    throw new Error("This job cannot be restarted from its current failed stage.");
+  }
+
+  await resetJobForRestart(jobId, failedStage);
+  await appendJobLog(jobId, "info", failedStage, `Restarting processing from ${failedStage}.`);
+  queueJobProcessing(jobId, await resolveOriginalSourcePath(jobId));
+}
+
+function queueJobProcessing(jobId: string, sourcePath: string): void {
   void runJobProcessing(jobId, sourcePath).catch(async (error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     const job = await readJob(jobId);
@@ -63,10 +95,9 @@ export async function startJobProcessing(jobId: string, sourcePath: string): Pro
 }
 
 async function runJobProcessing(jobId: string, sourcePath: string): Promise<void> {
+  const currentJob = await readJob(jobId);
   await appendJobLog(jobId, "info", "prepare_audio", "Starting background processing.");
-  await updateStage(jobId, "prepare_audio", "running", 5, "Validating and preparing audio.");
-  const { processedFilePath, processedFileName } = await prepareAudioFile(jobId, sourcePath);
-  await updateStage(jobId, "prepare_audio", "completed", 100, `Prepared ${processedFileName}.`);
+  const { processedFilePath } = await ensurePreparedAudio(jobId, sourcePath, currentJob);
 
   const baseLength = await determineBaseLength(processedFilePath);
   await appendJobLog(jobId, "info", "prepare_audio", `Estimated ${baseLength} words for downstream generation.`);
@@ -74,12 +105,10 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
   const songExample = DEFAULT_SONG_EXAMPLE;
   const songMod = SONG_MODIFIERS[Math.floor(Math.random() * SONG_MODIFIERS.length)];
 
-  await updateStage(jobId, "bullet_points", "running", 5, "Listening to audio.");
-  const bulletPoints = await createBulletPoints(jobId, processedFilePath, instructions);
-  await saveArtifactVersion(jobId, "bulletPoints", bulletPoints, "generated");
-  await updateStage(jobId, "bullet_points", "completed", 100, "Bullet points generated.");
+  const bulletPoints = await resolveBulletPoints(jobId, currentJob, processedFilePath, instructions);
 
   await generateTextArtifact(
+    currentJob,
     jobId,
     "play_by_play",
     "playByPlay",
@@ -87,6 +116,7 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     instructions,
   );
   await generateTextArtifact(
+    currentJob,
     jobId,
     "dm_notes",
     "dmNotes",
@@ -94,6 +124,7 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     instructions,
   );
   await generateTextArtifact(
+    currentJob,
     jobId,
     "summary",
     "summary",
@@ -101,22 +132,25 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     instructions,
   );
   const story = await generateTextArtifact(
+    currentJob,
     jobId,
     "story",
     "story",
     buildStoryPrompt(bulletPoints, Math.ceil(baseLength * 1.75)),
     instructions,
   );
-  await generateTextArtifact(jobId, "title", "title", buildTitlePrompt(story), NO_INSTRUCTIONS);
+  await generateTextArtifact(currentJob, jobId, "title", "title", buildTitlePrompt(story), NO_INSTRUCTIONS);
   const imagePrompt = await generateTextArtifact(
+    currentJob,
     jobId,
     "image_prompt",
     "imagePrompt",
     buildImagePrompt(story),
     NO_INSTRUCTIONS,
   );
-  await generateImageCandidate(jobId, imagePrompt);
+  await generateImageCandidate(jobId, currentJob, imagePrompt);
   const lyrics = await generateTextArtifact(
+    currentJob,
     jobId,
     "lyrics",
     "lyrics",
@@ -124,6 +158,7 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     NO_INSTRUCTIONS,
   );
   await generateTextArtifact(
+    currentJob,
     jobId,
     "song_prompt",
     "songPrompt",
@@ -158,6 +193,79 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
   }));
 }
 
+function getRestartableFailedStage(job: JobIndex): JobStageName | null {
+  const failedStage = job.stages.find((stage) => stage.status === JobStageStatus.enum.failed)?.name ?? null;
+  return failedStage && RESTARTABLE_STAGE_ORDER.includes(failedStage) ? failedStage : null;
+}
+
+function hasCompletedStage(job: JobIndex, stageName: JobStageName): boolean {
+  return job.stages.find((stage) => stage.name === stageName)?.status === JobStageStatus.enum.completed;
+}
+
+async function resolveOriginalSourcePath(jobId: string): Promise<string> {
+  const sourceDir = getJobSourceDir(jobId);
+  const sourceFileName = (await fs.readdir(sourceDir)).find((entry) => entry.startsWith("original."));
+  if (!sourceFileName) {
+    throw new Error("Original source audio is missing for this job.");
+  }
+  return path.join(sourceDir, sourceFileName);
+}
+
+async function ensurePreparedAudio(
+  jobId: string,
+  sourcePath: string,
+  job: JobIndex,
+): Promise<{ processedFilePath: string; processedFileName: string }> {
+  const processedFileName = "processed.mp3";
+  const processedFilePath = path.join(getJobSourceDir(jobId), processedFileName);
+
+  if (hasCompletedStage(job, "prepare_audio")) {
+    try {
+      await fs.access(processedFilePath);
+      await appendJobLog(jobId, "info", "prepare_audio", "Reusing previously prepared audio.");
+      return { processedFilePath, processedFileName };
+    } catch {
+      await appendJobLog(jobId, "warning", "prepare_audio", "Prepared audio was missing. Rebuilding it.");
+    }
+  }
+
+  await updateStage(jobId, "prepare_audio", "running", 5, "Validating and preparing audio.");
+  const prepared = await prepareAudioFile(jobId, sourcePath);
+  await updateStage(jobId, "prepare_audio", "completed", 100, `Prepared ${prepared.processedFileName}.`);
+  return prepared;
+}
+
+async function readActiveArtifactText(jobId: string, key: ArtifactKey): Promise<string> {
+  const artifact = await readArtifact(jobId, key);
+  const text = artifact.activeVersion?.text?.trim();
+  if (!text) {
+    throw new Error(`Active ${key} artifact is missing.`);
+  }
+  return text;
+}
+
+async function resolveBulletPoints(
+  jobId: string,
+  job: JobIndex,
+  processedFilePath: string,
+  instructions: string,
+): Promise<string> {
+  if (hasCompletedStage(job, "bullet_points")) {
+    try {
+      await appendJobLog(jobId, "info", "bullet_points", "Reusing previously generated bullet points.");
+      return await readActiveArtifactText(jobId, "bulletPoints");
+    } catch {
+      await appendJobLog(jobId, "warning", "bullet_points", "Bullet points were missing. Regenerating them.");
+    }
+  }
+
+  await updateStage(jobId, "bullet_points", "running", 5, "Listening to audio.");
+  const bulletPoints = await createBulletPoints(jobId, processedFilePath, instructions);
+  await saveArtifactVersion(jobId, "bulletPoints", bulletPoints, "generated");
+  await updateStage(jobId, "bullet_points", "completed", 100, "Bullet points generated.");
+  return bulletPoints;
+}
+
 async function resolveJobInstructions(jobId: string): Promise<string> {
   const job = await readJob(jobId);
   const contextText = buildSubmissionContextText(job.submission);
@@ -175,7 +283,12 @@ async function resolveJobInstructions(jobId: string): Promise<string> {
   }
 }
 
-async function generateImageCandidate(jobId: string, prompt: string): Promise<void> {
+async function generateImageCandidate(jobId: string, job: JobIndex, prompt: string): Promise<void> {
+  if (hasCompletedStage(job, "image_generation")) {
+    await appendJobLog(jobId, "info", "image_generation", "Reusing previously generated image candidates.");
+    return;
+  }
+
   await updateJob(jobId, (job) => ({
     ...job,
     image: {
@@ -192,12 +305,22 @@ async function generateImageCandidate(jobId: string, prompt: string): Promise<vo
 }
 
 async function generateTextArtifact(
+  job: JobIndex,
   jobId: string,
   stageName: "play_by_play" | "dm_notes" | "summary" | "story" | "title" | "image_prompt" | "lyrics" | "song_prompt",
   artifactKey: "playByPlay" | "dmNotes" | "summary" | "story" | "title" | "imagePrompt" | "lyrics" | "songPrompt",
   prompt: string,
   instructions: string,
 ): Promise<string> {
+  if (hasCompletedStage(job, stageName)) {
+    try {
+      await appendJobLog(jobId, "info", stageName, `Reusing previously generated ${artifactKey}.`);
+      return await readActiveArtifactText(jobId, artifactKey);
+    } catch {
+      await appendJobLog(jobId, "warning", stageName, `${artifactKey} was missing. Regenerating it.`);
+    }
+  }
+
   await updateStage(jobId, stageName, "running", 10, `Generating ${artifactKey}.`);
   const content = await sendTextMessage(instructions, prompt);
   await saveArtifactVersion(jobId, artifactKey, content, "generated");
@@ -229,8 +352,10 @@ async function createBulletPoints(jobId: string, audioFilePath: string, instruct
   const duration = await getAudioDuration(audioFilePath);
   await appendJobLog(jobId, "info", "bullet_points", `Audio duration detected: ${Math.ceil(duration / 60)} minutes.`);
   const progressDir = getJobProgressDir(jobId);
-  await fs.mkdir(path.join(progressDir, "audio-parts"), { recursive: true });
-  await fs.mkdir(path.join(progressDir, "bullet-points"), { recursive: true });
+  const audioPartsDir = path.join(progressDir, "audio-parts");
+  const bulletPointsDir = path.join(progressDir, "bullet-points");
+  await fs.mkdir(audioPartsDir, { recursive: true });
+  await fs.mkdir(bulletPointsDir, { recursive: true });
 
   if (duration <= MAX_DIRECT_AUDIO_SECONDS) {
     await updateStage(jobId, "bullet_points", "running", 50, "Using direct audio processing.");
@@ -247,8 +372,17 @@ async function createBulletPoints(jobId: string, audioFilePath: string, instruct
     const startTime = index * MAX_DIRECT_AUDIO_SECONDS;
     const partDuration = Math.min(MAX_DIRECT_AUDIO_SECONDS, duration - startTime);
     const partName = `part-${String(partNumber).padStart(3, "0")}.mp3`;
-    const partPath = path.join(progressDir, "audio-parts", partName);
-    const bulletPointPath = path.join(progressDir, "bullet-points", `${partName}.txt`);
+    const partPath = path.join(audioPartsDir, partName);
+    const bulletPointPath = path.join(bulletPointsDir, `${partName}.txt`);
+
+    const existingOutput = await readExistingBulletPointOutput(bulletPointPath);
+    if (existingOutput) {
+      partOutputs.push(existingOutput);
+      await appendJobLog(jobId, "info", "bullet_points", `Reusing ${partName} from previous processing.`);
+      const reusedProgress = Math.round((partNumber / parts) * 90) + 10;
+      await updateStage(jobId, "bullet_points", "running", reusedProgress, `Reused part ${partNumber} of ${parts}.`);
+      continue;
+    }
 
     await appendJobLog(jobId, "info", "bullet_points", `Creating and processing ${partName}.`);
     await splitAudio(audioFilePath, partPath, startTime, partDuration);
@@ -261,6 +395,15 @@ async function createBulletPoints(jobId: string, audioFilePath: string, instruct
   }
 
   return sendTextMessage(instructions, buildSynthesisPrompt(partOutputs));
+}
+
+async function readExistingBulletPointOutput(filePath: string): Promise<string | null> {
+  try {
+    const content = (await fs.readFile(filePath, "utf-8")).trim();
+    return content.length > 0 ? content : null;
+  } catch {
+    return null;
+  }
 }
 
 async function sendAudioMessage(audioFilePath: string, instructions: string, prompt: string): Promise<string> {

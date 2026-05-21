@@ -22,6 +22,7 @@ import { selectJobSongController } from "./controller.select-job-song.js";
 import { sendJobToContentfulController } from "./controller.send-job-to-contentful.js";
 import { sendJobToNotionController } from "./controller.send-job-to-notion.js";
 import { registerJobImages } from "./controller.job-images.js";
+import { restartJobController } from "./controller.restart-job.js";
 
 const router = express.Router();
 
@@ -46,6 +47,7 @@ approveJobImageController.register(router);
 selectJobSongController.register(router);
 sendJobToContentfulController.register(router);
 sendJobToNotionController.register(router);
+restartJobController.register(router);
 registerJobImages(router);
 registerJobStreams(router);
 

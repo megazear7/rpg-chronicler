@@ -395,6 +395,49 @@ export async function failJob(jobId: string, name: JobStageName, message: string
   return failedJob;
 }
 
+export async function resetJobForRestart(jobId: string, restartStage: JobStageName): Promise<JobIndex> {
+  const restartIndex = jobStageOrder.indexOf(restartStage);
+  const imageGenerationIndex = jobStageOrder.indexOf("image_generation");
+  const songPromptIndex = jobStageOrder.indexOf("song_prompt");
+
+  if (restartIndex < 0) {
+    throw new Error(`Unknown restart stage: ${restartStage}`);
+  }
+
+  return updateJob(jobId, (job) =>
+    JobIndex.parse({
+      ...job,
+      errorMessage: null,
+      stages: job.stages.map((stage) => {
+        if (jobStageOrder.indexOf(stage.name) < restartIndex) {
+          return stage;
+        }
+
+        return {
+          ...stage,
+          status: JobStageStatus.enum.pending,
+          progress: 0,
+          updatedAt: now(),
+          message: undefined,
+        };
+      }),
+      image: restartIndex <= imageGenerationIndex ? createImageState() : job.image,
+      song: restartIndex <= songPromptIndex ? createSongState() : job.song,
+      contentful:
+        restartIndex <= songPromptIndex
+          ? {
+              ...job.contentful,
+              status: "not_ready",
+              entryId: null,
+              entryUrl: null,
+              sentAt: null,
+            }
+          : job.contentful,
+      notion: restartIndex <= songPromptIndex ? createNotionState() : job.notion,
+    }),
+  );
+}
+
 export async function appendJobLog(
   jobId: string,
   level: JobLogLevel,

@@ -12,6 +12,7 @@ import { JobDetail, JobStage } from "../shared/type.job.js";
 import { globalStyles } from "./styles.global.js";
 import { RpgChroniclerAppProvider } from "./provider.app.js";
 import { aiIcon, detailsIcon, leftArrowIcon, refreshIcon } from "./icons.js";
+import { restartJobService } from "../shared/service.restart-job.js";
 import { dispatch } from "./util.events.js";
 import { SuccessEvent } from "./event.success.js";
 import { WarningEvent } from "./event.warning.js";
@@ -21,6 +22,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
   private params = parseRouteParams("/jobs/:jobId", window.location.pathname);
   @state() private job: JobDetail | null = null;
   @state() private selectedSongUrl = "";
+  @state() private restarting = false;
   private eventSource: EventSource | null = null;
 
   static override styles = [
@@ -83,6 +85,10 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         display: grid;
         gap: var(--size-medium);
         box-shadow: var(--shadow-normal);
+      }
+
+      .stage-message {
+        word-break: break-all;
       }
 
       .version-actions {
@@ -271,12 +277,44 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
       `;
     }
 
+    const canRestartFailedJob =
+      this.job.status === "failed" &&
+      this.job.stages.some(
+        (stage) =>
+          [
+            "prepare_audio",
+            "bullet_points",
+            "play_by_play",
+            "dm_notes",
+            "summary",
+            "story",
+            "title",
+            "image_prompt",
+            "image_generation",
+            "lyrics",
+            "song_prompt",
+          ].includes(stage.name) && stage.status === "failed",
+      );
+
     return html`
       <main>
         <section class="hero">
           <div class="version-actions">
             <a href="/jobs">${leftArrowIcon} Jobs</a>
-            <a href=${`/jobs/${this.params.jobId}/logs`}>Logs ${detailsIcon}</a>
+            <div class="version-actions">
+              ${canRestartFailedJob
+                ? html`
+                    <button ?disabled=${this.restarting} @click=${this.handleRestartFromFailed}>
+                      ${this.restarting
+                        ? "Restarting..."
+                        : html`
+                            ${refreshIcon} Restart from failed
+                          `}
+                    </button>
+                  `
+                : html``}
+              <a href=${`/jobs/${this.params.jobId}/logs`}>Logs ${detailsIcon}</a>
+            </div>
           </div>
           <h1>${this.job.file}</h1>
           <div class="hero-grid">
@@ -355,7 +393,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         <div>${stage.progress}%</div>
         ${stage.message
           ? html`
-              <div>${stage.message}</div>
+              <div class="stage-message">${stage.message}</div>
             `
           : html``}
       </article>
@@ -449,7 +487,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         <div>${stage.progress}%</div>
         ${stage.message
           ? html`
-              <div>${stage.message}</div>
+              <div class="stage-message">${stage.message}</div>
             `
           : html``}
       </article>
@@ -672,6 +710,18 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
       dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to send DM notes to Notion."));
     }
   }
+
+  private handleRestartFromFailed = async (): Promise<void> => {
+    this.restarting = true;
+    try {
+      this.job = await restartJobService.fetch({ jobId: this.params.jobId });
+      dispatch(this, SuccessEvent("Job restarted from the failed stage."));
+    } catch (error) {
+      dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to restart the failed job."));
+    } finally {
+      this.restarting = false;
+    }
+  };
 
   private openStream(): void {
     if (this.eventSource) {

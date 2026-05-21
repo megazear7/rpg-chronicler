@@ -5,6 +5,8 @@ import { getJobService } from "../shared/service.get-job.js";
 import { streamJobService } from "../shared/service.stream-job.js";
 import {
   ArtifactDetail,
+  JobArtifactOutput,
+  JobAudioFile,
   ArtifactKey,
   ArtifactSummary,
   ArtifactVersion,
@@ -202,6 +204,40 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
         gap: var(--size-large);
       }
 
+      .artifact-output-list {
+        display: grid;
+        gap: var(--size-large);
+      }
+
+      .audio-file-list {
+        display: grid;
+        gap: var(--size-large);
+        margin-top: var(--size-medium);
+      }
+
+      .audio-file-item {
+        display: grid;
+        gap: var(--size-small);
+        padding: var(--size-medium);
+      }
+
+      .audio-meta {
+        display: flex;
+        gap: var(--size-small);
+        flex-wrap: wrap;
+        align-items: center;
+      }
+
+      audio {
+        width: 100%;
+      }
+
+      audio::-webkit-media-controls-panel {
+        background-color: var(--color-tertiary-surface);
+        color: var(--color-primary-text);
+        border-radius: 10px;
+      }
+
       .version-item,
       .log-item {
         padding: var(--size-medium);
@@ -334,7 +370,12 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
             : html``}
         </section>
 
-        ${artifact ? this.renderArtifactEditor(artifact) : this.renderStageOverview(stage, logs)}
+        ${artifact
+          ? this.renderArtifactEditor(artifact)
+          : stageName === "prepare_audio"
+            ? this.renderPrepareAudioOverview(stage, logs)
+            : this.renderStageOverview(stage, logs)}
+        ${stageName === "bullet_points" ? this.renderBulletPointOutputs() : html``}
         ${artifact ? this.renderVersions(artifact) : html``}
 
         <section>
@@ -419,6 +460,100 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
             `
           : html``}
       </section>
+    `;
+  }
+
+  private renderPrepareAudioOverview(stage: JobStage | null, logs: JobLogEntry[]): TemplateResult {
+    const audioFiles = this.job?.audioFiles ?? [];
+    const splitFiles = audioFiles.filter((file) => file.kind === "split");
+
+    return html`
+      <section class="panel empty-state">
+        <div class="section-title">
+          <h2>Prepared audio files</h2>
+          <span class="pill">${audioFiles.length} files</span>
+        </div>
+        <p>
+          Review the processed audio and any generated split parts below. Each file includes its duration and an inline
+          player.
+        </p>
+        ${stage?.message
+          ? html`
+              <div class="pill">Latest note: ${stage.message}</div>
+            `
+          : html``}
+        ${splitFiles.length === 0
+          ? html`
+              <div class="pill">No split audio parts were generated for this job.</div>
+            `
+          : html``}
+        ${logs.length > 0
+          ? html`
+              <div class="pill">Recent log: ${logs[logs.length - 1]?.message}</div>
+            `
+          : html``}
+        <div class="audio-file-list">
+          ${audioFiles.length === 0
+            ? html`
+                <p>No prepared audio files are available yet.</p>
+              `
+            : audioFiles.map((audioFile) => this.renderAudioFile(audioFile))}
+        </div>
+      </section>
+    `;
+  }
+
+  private renderAudioFile(audioFile: JobAudioFile): TemplateResult {
+    const audioUrl = `/api/jobs/${this.params.jobId}/audio/${encodeURIComponent(audioFile.fileName)}`;
+    return html`
+      <article class="version-item audio-file-item">
+        <div class="section-title">
+          <strong>${audioFile.label}</strong>
+          <div class="audio-meta">
+            <span class="pill">${audioFile.kind}</span>
+            <span class="pill">${this.formatAudioDuration(audioFile.durationSeconds)}</span>
+            <span class="pill">${audioFile.fileName}</span>
+          </div>
+        </div>
+        <audio controls preload="metadata" src=${audioUrl}></audio>
+      </article>
+    `;
+  }
+
+  private renderBulletPointOutputs(): TemplateResult {
+    const outputs = this.job?.bulletPointOutputs ?? [];
+    return html`
+      <section>
+        <div class="section-title">
+          <h2>Segment outputs</h2>
+          <span class="pill">${outputs.length} outputs</span>
+        </div>
+        <div class="artifact-output-list">
+          ${outputs.length === 0
+            ? html`
+                <p>No per-segment outputs have been saved yet.</p>
+              `
+            : outputs.map((output) => this.renderArtifactOutput(output))}
+        </div>
+      </section>
+    `;
+  }
+
+  private renderArtifactOutput(output: JobArtifactOutput): TemplateResult {
+    return html`
+      <article class="version-item">
+        <div class="version-header">
+          <div class="editor-meta">
+            <span class="pill">${output.label}</span>
+          </div>
+          <div class="editor-actions">
+            <button class="secondary icon-button" @click=${() => this.handleCopy(output.text)} title="Copy this output">
+              ${copyIcon}
+            </button>
+          </div>
+        </div>
+        <div class="version-text">${output.text}</div>
+      </article>
     `;
   }
 
@@ -523,6 +658,13 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
   private countWords(text: string): number {
     const normalized = text.trim();
     return normalized ? normalized.split(/\s+/).length : 0;
+  }
+
+  private formatAudioDuration(durationSeconds: number): string {
+    const totalSeconds = Math.max(0, Math.round(durationSeconds));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
   }
 
   private handleEditorInput(artifactKey: string, event: Event): void {

@@ -1,10 +1,13 @@
 import path from "path";
 import { promises as fs } from "fs";
 import { randomUUID } from "crypto";
+import ffmpeg from "fluent-ffmpeg";
 import z from "zod";
 import {
   ArtifactDetail,
   ArtifactKey,
+  JobArtifactOutput,
+  JobAudioFile,
   ArtifactSummary,
   ArtifactVersion,
   ArtifactVersionSource,
@@ -14,6 +17,7 @@ import {
   JobDetail,
   JobImageState,
   JobImageAsset,
+  JobImagePrompt,
   JobLogEntry,
   JobLogLevel,
   JobNotionState,
@@ -53,10 +57,94 @@ function createStages(): JobStage[] {
 function createImageState(): JobImageState {
   return {
     status: "not_ready",
-    selectedAssetId: null,
+    prompts: [],
     generatedAssets: [],
     lastGeneratedAt: null,
   };
+}
+
+function normalizeImageState(image: unknown): JobImageState {
+  const base = typeof image === "object" && image !== null ? (image as Record<string, unknown>) : {};
+  const generatedAssetsInput = Array.isArray(base.generatedAssets) ? base.generatedAssets : [];
+  const promptsInput = Array.isArray(base.prompts) ? base.prompts : [];
+
+  const prompts =
+    promptsInput.length > 0
+      ? promptsInput.map((prompt) =>
+          JobImagePrompt.parse({
+            ...(typeof prompt === "object" && prompt !== null ? prompt : {}),
+            id:
+              typeof (prompt as { id?: unknown })?.id === "string"
+                ? (prompt as { id: string }).id
+                : `prompt-${promptsInput.indexOf(prompt) + 1}`,
+            label:
+              typeof (prompt as { label?: unknown })?.label === "string"
+                ? (prompt as { label: string }).label
+                : `Image ${promptsInput.indexOf(prompt) + 1}`,
+            storyPart:
+              typeof (prompt as { storyPart?: unknown })?.storyPart === "string"
+                ? (prompt as { storyPart: string }).storyPart
+                : `Part ${promptsInput.indexOf(prompt) + 1}`,
+            prompt:
+              typeof (prompt as { prompt?: unknown })?.prompt === "string" ? (prompt as { prompt: string }).prompt : "",
+          }),
+        )
+      : generatedAssetsInput.map((asset, index) =>
+          JobImagePrompt.parse({
+            id: `legacy-prompt-${index + 1}`,
+            label: `Image ${index + 1}`,
+            storyPart: `Part ${index + 1}`,
+            prompt:
+              typeof (asset as { prompt?: unknown })?.prompt === "string" ? (asset as { prompt: string }).prompt : "",
+          }),
+        );
+
+  const legacySelectedAssetId = typeof base.selectedAssetId === "string" ? base.selectedAssetId : null;
+  const generatedAssets = generatedAssetsInput.map((asset, index) => {
+    const candidate = typeof asset === "object" && asset !== null ? (asset as Record<string, unknown>) : {};
+    const promptId =
+      typeof candidate.promptId === "string"
+        ? candidate.promptId
+        : (prompts[index]?.id ?? prompts[0]?.id ?? `legacy-prompt-${index + 1}`);
+    const approvedAt =
+      typeof candidate.approvedAt === "string"
+        ? candidate.approvedAt
+        : legacySelectedAssetId && typeof candidate.id === "string" && candidate.id === legacySelectedAssetId
+          ? now()
+          : null;
+    return JobImageAsset.parse({
+      ...candidate,
+      promptId,
+      approvedAt,
+      rejectedAt: typeof candidate.rejectedAt === "string" ? candidate.rejectedAt : null,
+    });
+  });
+
+  const reviewedCount = generatedAssets.filter((asset) => asset.approvedAt || asset.rejectedAt).length;
+  const totalCount = prompts.length > 0 ? prompts.length : generatedAssets.length;
+  const approvedCount = generatedAssets.filter((asset) => asset.approvedAt && !asset.rejectedAt).length;
+  const status = (() => {
+    if (typeof base.status !== "string") {
+      if (generatedAssets.length === 0) {
+        return JobImageState.shape.status.enum.not_ready;
+      }
+      if (totalCount > 0 && reviewedCount >= totalCount) {
+        return approvedCount > 0 ? JobImageState.shape.status.enum.approved : JobImageState.shape.status.enum.reviewed;
+      }
+      return JobImageState.shape.status.enum.awaiting_approval;
+    }
+    if (base.status === "approved" && totalCount > 0 && reviewedCount < totalCount) {
+      return JobImageState.shape.status.enum.awaiting_approval;
+    }
+    return JobImageState.shape.status.parse(base.status);
+  })();
+
+  return JobImageState.parse({
+    status,
+    prompts,
+    generatedAssets,
+    lastGeneratedAt: typeof base.lastGeneratedAt === "string" ? base.lastGeneratedAt : null,
+  });
 }
 
 function createSongState(): JobSongState {
@@ -188,7 +276,7 @@ function normalizeJob(job: unknown): JobIndex {
     errorMessage: typeof base.errorMessage === "string" ? base.errorMessage : null,
     stages: normalizeStages(base.stages),
     artifacts: Array.isArray(base.artifacts) ? base.artifacts : createArtifacts(),
-    image: base.image ?? createImageState(),
+    image: normalizeImageState(base.image),
     song: base.song ?? createSongState(),
     contentful: base.contentful ?? createContentful(),
     notion: base.notion ?? createNotionState(),
@@ -214,17 +302,22 @@ function hydrateJob(job: JobIndex): JobIndex {
 }
 
 function hasContentfulInputs(job: JobIndex): boolean {
-  const approvedImage = job.image.generatedAssets.find(
-    (asset) => asset.id === job.image.selectedAssetId && asset.approvedAt,
-  );
+  const imageReviewComplete = job.stages.find((stage) => stage.name === "image_approval")?.status === "completed";
   return Boolean(
     job.contentful.title &&
     job.contentful.summary &&
     job.contentful.story &&
     job.contentful.dmNotes &&
-    approvedImage &&
+    imageReviewComplete &&
     job.song.songUrl,
   );
+}
+
+function summarizeImageReview(image: JobImageState): { total: number; reviewed: number; approved: number } {
+  const total = image.prompts.length;
+  const reviewed = image.generatedAssets.filter((asset) => asset.approvedAt || asset.rejectedAt).length;
+  const approved = image.generatedAssets.filter((asset) => asset.approvedAt && !asset.rejectedAt).length;
+  return { total, reviewed, approved };
 }
 
 async function ensureDir(dirPath: string): Promise<void> {
@@ -255,6 +348,10 @@ export function getJobProgressDir(jobId: string): string {
   return path.join(getJobDir(jobId), "progress");
 }
 
+export function getJobAudioPartsDir(jobId: string): string {
+  return path.join(getJobProgressDir(jobId), "audio-parts");
+}
+
 export function getJobArtifactsDir(jobId: string): string {
   return path.join(getJobDir(jobId), "artifacts");
 }
@@ -273,6 +370,10 @@ export function getArtifactDir(jobId: string, key: ArtifactKey): string {
 
 export function getArtifactVersionsDir(jobId: string, key: ArtifactKey): string {
   return path.join(getArtifactDir(jobId, key), "versions");
+}
+
+export function getArtifactOutputsDir(jobId: string, key: ArtifactKey): string {
+  return path.join(getArtifactDir(jobId, key), "outputs");
 }
 
 export async function createJob(
@@ -667,10 +768,117 @@ export async function readJobDetail(jobId: string): Promise<JobDetail> {
     await Promise.all(artifactOrder.map(async (key) => [key, await listArtifactVersions(jobId, key)])),
   );
   const logs = await readJobLogs(jobId);
+  const audioFiles = await listJobAudioFiles(jobId);
+  const bulletPointOutputs = await listArtifactOutputs(jobId, "bulletPoints");
   return JobDetail.parse({
     ...job,
     artifactVersions,
     logs,
+    audioFiles,
+    bulletPointOutputs,
+  });
+}
+
+export async function saveArtifactOutput(
+  jobId: string,
+  key: ArtifactKey,
+  id: string,
+  label: string,
+  text: string,
+): Promise<void> {
+  const output = JobArtifactOutput.parse({
+    id,
+    label,
+    text,
+    createdAt: now(),
+  });
+  const outputsDir = getArtifactOutputsDir(jobId, key);
+  await ensureDir(outputsDir);
+  await fs.writeFile(path.join(outputsDir, `${id}.json`), JSON.stringify(output, null, 2), "utf-8");
+}
+
+export async function readArtifactOutput(
+  jobId: string,
+  key: ArtifactKey,
+  id: string,
+): Promise<JobArtifactOutput | null> {
+  try {
+    const content = await fs.readFile(path.join(getArtifactOutputsDir(jobId, key), `${id}.json`), "utf-8");
+    return JobArtifactOutput.parse(JSON.parse(content));
+  } catch {
+    return null;
+  }
+}
+
+export async function listArtifactOutputs(jobId: string, key: ArtifactKey): Promise<JobArtifactOutput[]> {
+  const outputsDir = getArtifactOutputsDir(jobId, key);
+  try {
+    const files = (await fs.readdir(outputsDir)).filter((file) => file.endsWith(".json")).sort();
+    const outputs = await Promise.all(
+      files.map(async (file) => {
+        const content = await fs.readFile(path.join(outputsDir, file), "utf-8");
+        return JobArtifactOutput.parse(JSON.parse(content));
+      }),
+    );
+    return outputs.sort((left, right) => left.id.localeCompare(right.id));
+  } catch {
+    return [];
+  }
+}
+
+export async function listJobAudioFiles(jobId: string): Promise<JobAudioFile[]> {
+  const sourceDir = getJobSourceDir(jobId);
+  const audioPartsDir = getJobAudioPartsDir(jobId);
+  const audioFiles: JobAudioFile[] = [];
+
+  const processedPath = path.join(sourceDir, "processed.mp3");
+  try {
+    await fs.access(processedPath);
+    audioFiles.push(
+      JobAudioFile.parse({
+        fileName: "processed.mp3",
+        label: "Prepared audio",
+        kind: "prepared",
+        durationSeconds: await getAudioDuration(processedPath),
+      }),
+    );
+  } catch {
+    // Ignore missing prepared audio.
+  }
+
+  try {
+    const partNames = (await fs.readdir(audioPartsDir))
+      .filter((entry) => entry.toLowerCase().endsWith(".mp3"))
+      .sort((left, right) => left.localeCompare(right));
+
+    const partFiles = await Promise.all(
+      partNames.map(async (fileName, index) =>
+        JobAudioFile.parse({
+          fileName,
+          label: `Split part ${index + 1}`,
+          kind: "split",
+          durationSeconds: await getAudioDuration(path.join(audioPartsDir, fileName)),
+        }),
+      ),
+    );
+    audioFiles.push(...partFiles);
+  } catch {
+    // Ignore missing split audio directory.
+  }
+
+  return audioFiles;
+}
+
+async function getAudioDuration(filePath: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(filePath, (error, metadata) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve(metadata.format.duration ?? 0);
+    });
   });
 }
 
@@ -687,6 +895,7 @@ function extensionForMimeType(mimeType: string): string {
 
 export async function saveGeneratedImageAsset(
   jobId: string,
+  promptId: string,
   prompt: string,
   buffer: Buffer,
   mimeType: string,
@@ -700,12 +909,14 @@ export async function saveGeneratedImageAsset(
 
   const asset = {
     id,
+    promptId,
     createdAt,
     prompt,
     fileName,
     mimeType,
     source,
     approvedAt: null,
+    rejectedAt: null,
   };
 
   await updateJob(jobId, (job) =>
@@ -714,8 +925,7 @@ export async function saveGeneratedImageAsset(
       image: {
         ...job.image,
         status: "awaiting_approval",
-        selectedAssetId: job.image.selectedAssetId ?? id,
-        generatedAssets: [asset, ...job.image.generatedAssets],
+        generatedAssets: [asset, ...job.image.generatedAssets.filter((entry) => entry.promptId !== promptId)],
         lastGeneratedAt: createdAt,
       },
     }),
@@ -725,21 +935,76 @@ export async function saveGeneratedImageAsset(
 }
 
 export async function approveImageAsset(jobId: string, assetId: string): Promise<JobDetail> {
+  const updated = await updateJob(jobId, (job) =>
+    JobIndex.parse({
+      ...job,
+      image: {
+        ...job.image,
+        generatedAssets: job.image.generatedAssets.map((asset) => ({
+          ...asset,
+          approvedAt: asset.id === assetId ? now() : (asset.approvedAt ?? null),
+          rejectedAt: asset.id === assetId ? null : (asset.rejectedAt ?? null),
+        })),
+      },
+    }),
+  );
+  const summary = summarizeImageReview(updated.image);
+  const stageComplete = summary.total > 0 && summary.reviewed >= summary.total;
+  await updateStage(
+    jobId,
+    "image_approval",
+    stageComplete ? "completed" : "running",
+    summary.total === 0 ? 0 : Math.round((summary.reviewed / summary.total) * 100),
+    stageComplete
+      ? `Image review complete. ${summary.approved} of ${summary.total} images approved.`
+      : `Reviewed ${summary.reviewed} of ${summary.total} images.`,
+  );
   await updateJob(jobId, (job) =>
     JobIndex.parse({
       ...job,
       image: {
         ...job.image,
-        status: "approved",
-        selectedAssetId: assetId,
+        status: stageComplete ? (summary.approved > 0 ? "approved" : "reviewed") : "awaiting_approval",
+      },
+    }),
+  );
+  return readJobDetail(jobId);
+}
+
+export async function rejectImageAsset(jobId: string, assetId: string): Promise<JobDetail> {
+  const updated = await updateJob(jobId, (job) =>
+    JobIndex.parse({
+      ...job,
+      image: {
+        ...job.image,
         generatedAssets: job.image.generatedAssets.map((asset) => ({
           ...asset,
-          approvedAt: asset.id === assetId ? now() : null,
+          approvedAt: asset.id === assetId ? null : (asset.approvedAt ?? null),
+          rejectedAt: asset.id === assetId ? now() : (asset.rejectedAt ?? null),
         })),
       },
     }),
   );
-  await updateStage(jobId, "image_approval", "completed", 100, "Image approved for publishing.");
+  const summary = summarizeImageReview(updated.image);
+  const stageComplete = summary.total > 0 && summary.reviewed >= summary.total;
+  await updateStage(
+    jobId,
+    "image_approval",
+    stageComplete ? "completed" : "running",
+    summary.total === 0 ? 0 : Math.round((summary.reviewed / summary.total) * 100),
+    stageComplete
+      ? `Image review complete. ${summary.approved} of ${summary.total} images approved.`
+      : `Reviewed ${summary.reviewed} of ${summary.total} images.`,
+  );
+  await updateJob(jobId, (job) =>
+    JobIndex.parse({
+      ...job,
+      image: {
+        ...job.image,
+        status: stageComplete ? (summary.approved > 0 ? "approved" : "reviewed") : "awaiting_approval",
+      },
+    }),
+  );
   return readJobDetail(jobId);
 }
 

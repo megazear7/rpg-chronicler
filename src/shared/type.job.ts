@@ -95,20 +95,46 @@ export const JobLogEntry = z.object({
 });
 export type JobLogEntry = z.infer<typeof JobLogEntry>;
 
+export const JobAudioFile = z.object({
+  fileName: z.string().min(1),
+  label: z.string().min(1),
+  kind: z.enum(["prepared", "split"]),
+  durationSeconds: z.number().nonnegative(),
+});
+export type JobAudioFile = z.infer<typeof JobAudioFile>;
+
+export const JobArtifactOutput = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  text: z.string(),
+  createdAt: z.string().datetime(),
+});
+export type JobArtifactOutput = z.infer<typeof JobArtifactOutput>;
+
+export const JobImagePrompt = z.object({
+  id: z.string().min(1),
+  label: z.string().min(1),
+  storyPart: z.string().min(1),
+  prompt: z.string().min(1),
+});
+export type JobImagePrompt = z.infer<typeof JobImagePrompt>;
+
 export const JobImageAsset = z.object({
   id: z.string().min(1),
+  promptId: z.string().min(1),
   createdAt: z.string().datetime(),
   prompt: z.string(),
   fileName: z.string(),
   mimeType: z.string(),
   source: z.enum(["generated", "uploaded"]),
   approvedAt: z.string().datetime().nullable().optional(),
+  rejectedAt: z.string().datetime().nullable().optional(),
 });
 export type JobImageAsset = z.infer<typeof JobImageAsset>;
 
 export const JobImageState = z.object({
-  status: z.enum(["not_ready", "ready", "generating", "awaiting_approval", "approved"]),
-  selectedAssetId: z.string().nullable(),
+  status: z.enum(["not_ready", "ready", "generating", "awaiting_approval", "approved", "reviewed"]),
+  prompts: z.array(JobImagePrompt),
   generatedAssets: z.array(JobImageAsset),
   lastGeneratedAt: z.string().datetime().nullable(),
 });
@@ -166,6 +192,8 @@ export type JobIndex = z.infer<typeof JobIndex>;
 export const JobDetail = JobIndex.extend({
   artifactVersions: z.record(z.string(), z.array(ArtifactVersion)),
   logs: z.array(JobLogEntry),
+  audioFiles: z.array(JobAudioFile),
+  bulletPointOutputs: z.array(JobArtifactOutput),
 });
 export type JobDetail = z.infer<typeof JobDetail>;
 

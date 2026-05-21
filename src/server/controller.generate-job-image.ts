@@ -3,16 +3,15 @@ import { JobPathParameters } from "../shared/service.get-job.js";
 import { generateJobImageService } from "../shared/service.generate-job-image.js";
 import { JobDetail } from "../shared/type.job.js";
 import { AbstractController } from "./main.controller.js";
-import { readArtifact, readJobDetail, saveGeneratedImageAsset, updateJob, updateStage } from "./util.job-store.js";
+import { readJobDetail, saveGeneratedImageAsset, updateJob, updateStage } from "./util.job-store.js";
 import { generateImageFromPrompt } from "./util.image.js";
 import { RouteError } from "./main.errors.js";
 
 export class GenerateJobImageController extends AbstractController<NoBodyParams, JobPathParameters, JobDetail> {
   async handler({ pathParams }: RequestOptions<NoBodyParams, JobPathParameters>): Promise<JobDetail> {
-    const imagePrompt = await readArtifact(pathParams.jobId, "imagePrompt");
-    const prompt = imagePrompt.activeVersion?.text?.trim();
-    if (!prompt) {
-      throw new RouteError(400, "Image prompt must be available before generating an image.");
+    const current = await readJobDetail(pathParams.jobId);
+    if (current.image.prompts.length === 0) {
+      throw new RouteError(400, "Image prompts must be available before generating images.");
     }
 
     await updateJob(pathParams.jobId, (job) => ({
@@ -22,16 +21,34 @@ export class GenerateJobImageController extends AbstractController<NoBodyParams,
         status: "generating",
       },
     }));
-    await updateStage(pathParams.jobId, "image_generation", "running", 25, "Generating a new image candidate.");
-    const { buffer, mimeType } = await generateImageFromPrompt(prompt);
-    await saveGeneratedImageAsset(pathParams.jobId, prompt, buffer, mimeType, "generated");
-    await updateStage(pathParams.jobId, "image_generation", "completed", 100, "Generated a new image candidate.");
+
+    for (let index = 0; index < current.image.prompts.length; index += 1) {
+      const prompt = current.image.prompts[index];
+      const { buffer, mimeType } = await generateImageFromPrompt(prompt.prompt);
+      await saveGeneratedImageAsset(pathParams.jobId, prompt.id, prompt.prompt, buffer, mimeType, "generated");
+      await updateStage(
+        pathParams.jobId,
+        "image_generation",
+        "running",
+        Math.round(((index + 1) / current.image.prompts.length) * 100),
+        `Generated image ${index + 1} of ${current.image.prompts.length} for ${prompt.storyPart}.`,
+      );
+    }
+
+    await updateJob(pathParams.jobId, (job) => ({
+      ...job,
+      image: {
+        ...job.image,
+        status: "awaiting_approval",
+      },
+    }));
+    await updateStage(pathParams.jobId, "image_generation", "completed", 100, "Generated image candidates.");
     await updateStage(
       pathParams.jobId,
       "image_approval",
       "running",
-      50,
-      "Review the image prompt and approve an image candidate.",
+      0,
+      `Review ${current.image.prompts.length} generated images and approve or reject each.`,
     );
     return readJobDetail(pathParams.jobId);
   }

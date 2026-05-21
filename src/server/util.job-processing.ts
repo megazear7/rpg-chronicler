@@ -7,16 +7,19 @@ import { getAppConfig } from "./util.app.js";
 import { getTextCompletion } from "./util.submit-prompt.js";
 import { loadAudioClient } from "./util.model.js";
 import { DEFAULT_INSTRUCTION_CONFIG, InstructionConfig } from "../shared/type.instructions.js";
-import { ArtifactKey, JobIndex, JobStageName, JobStageStatus } from "../shared/type.job.js";
+import { ArtifactKey, JobImagePrompt, JobIndex, JobStageName, JobStageStatus } from "../shared/type.job.js";
 import {
   appendJobLog,
   failJob,
+  getArtifactOutputsDir,
   getJobProgressDir,
   getJobSourceDir,
   readArtifact,
+  readArtifactOutput,
   readJob,
   resetJobForRestart,
   saveGeneratedImageAsset,
+  saveArtifactOutput,
   saveArtifactVersion,
   updateJob,
   updateStage,
@@ -140,15 +143,8 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     instructions,
   );
   await generateTextArtifact(currentJob, jobId, "title", "title", buildTitlePrompt(story), NO_INSTRUCTIONS);
-  const imagePrompt = await generateTextArtifact(
-    currentJob,
-    jobId,
-    "image_prompt",
-    "imagePrompt",
-    buildImagePrompt(story),
-    NO_INSTRUCTIONS,
-  );
-  await generateImageCandidate(jobId, currentJob, imagePrompt);
+  const imagePrompts = await resolveImagePrompts(jobId, currentJob, story);
+  await generateImageCandidates(jobId, currentJob, imagePrompts);
   const lyrics = await generateTextArtifact(
     currentJob,
     jobId,
@@ -178,7 +174,7 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     "contentful",
     "pending",
     0,
-    "Approve the image and song, then send the event to Contentful.",
+    "Review the images and song, then send the event to Contentful.",
   );
   await updateStage(jobId, "notion", "pending", 0, "Send DM notes to Notion after the event is published.");
   await appendJobLog(
@@ -283,25 +279,101 @@ async function resolveJobInstructions(jobId: string): Promise<string> {
   }
 }
 
-async function generateImageCandidate(jobId: string, job: JobIndex, prompt: string): Promise<void> {
-  if (hasCompletedStage(job, "image_generation")) {
+async function resolveImagePrompts(jobId: string, job: JobIndex, story: string): Promise<JobImagePrompt[]> {
+  if (hasCompletedStage(job, "image_prompt") && job.image.prompts.length > 0) {
+    await appendJobLog(jobId, "info", "image_prompt", "Reusing previously generated image prompts.");
+    return job.image.prompts;
+  }
+
+  if (hasCompletedStage(job, "image_prompt")) {
+    try {
+      const existingArtifact = await readActiveArtifactText(jobId, "imagePrompt");
+      const prompts = parseImagePrompts(existingArtifact);
+      await updateJob(jobId, (current) => ({
+        ...current,
+        image: {
+          ...current.image,
+          status: "ready",
+          prompts,
+        },
+      }));
+      await appendJobLog(jobId, "info", "image_prompt", "Recovered image prompts from the saved artifact.");
+      return prompts;
+    } catch {
+      await appendJobLog(jobId, "warning", "image_prompt", "Image prompts were missing. Regenerating them.");
+    }
+  }
+
+  await updateStage(jobId, "image_prompt", "running", 10, "Generating three image prompts for key story beats.");
+  const content = await sendTextMessage(NO_INSTRUCTIONS, buildImagePromptSetPrompt(story));
+  const prompts = parseImagePrompts(content);
+  await saveArtifactVersion(jobId, "imagePrompt", formatImagePromptArtifact(prompts), "generated");
+  await updateJob(jobId, (current) => ({
+    ...current,
+    image: {
+      ...current.image,
+      status: "ready",
+      prompts,
+    },
+  }));
+  await updateStage(jobId, "image_prompt", "completed", 100, `Generated ${prompts.length} image prompts.`);
+  return prompts;
+}
+
+async function generateImageCandidates(jobId: string, job: JobIndex, prompts: JobImagePrompt[]): Promise<void> {
+  if (
+    hasCompletedStage(job, "image_generation") &&
+    prompts.every((prompt) => job.image.generatedAssets.some((asset) => asset.promptId === prompt.id))
+  ) {
     await appendJobLog(jobId, "info", "image_generation", "Reusing previously generated image candidates.");
     return;
   }
 
-  await updateJob(jobId, (job) => ({
-    ...job,
+  await updateJob(jobId, (current) => ({
+    ...current,
     image: {
-      ...job.image,
+      ...current.image,
       status: "generating",
+      prompts,
     },
   }));
-  await updateStage(jobId, "image_generation", "running", 25, "Generating an image candidate from the image prompt.");
-  const { buffer, mimeType } = await generateImageFromPrompt(prompt);
-  const asset = await saveGeneratedImageAsset(jobId, prompt, buffer, mimeType, "generated");
-  await updateStage(jobId, "image_generation", "completed", 100, "Generated an image candidate.");
-  await updateStage(jobId, "image_approval", "running", 50, "Review the image prompt and approve an image candidate.");
-  await appendJobLog(jobId, "success", "image_generation", `Image candidate ${asset.fileName} is ready for review.`);
+  await updateStage(jobId, "image_generation", "running", 5, `Generating ${prompts.length} image candidates.`);
+
+  for (let index = 0; index < prompts.length; index += 1) {
+    const prompt = prompts[index];
+    const { buffer, mimeType } = await generateImageFromPrompt(prompt.prompt);
+    const asset = await saveGeneratedImageAsset(jobId, prompt.id, prompt.prompt, buffer, mimeType, "generated");
+    const progress = Math.round(((index + 1) / prompts.length) * 100);
+    await updateStage(
+      jobId,
+      "image_generation",
+      "running",
+      progress,
+      `Generated image ${index + 1} of ${prompts.length} for ${prompt.storyPart}.`,
+    );
+    await appendJobLog(
+      jobId,
+      "success",
+      "image_generation",
+      `Image candidate ${asset.fileName} is ready for ${prompt.storyPart}.`,
+    );
+  }
+
+  await updateJob(jobId, (current) => ({
+    ...current,
+    image: {
+      ...current.image,
+      status: "awaiting_approval",
+    },
+  }));
+  await updateStage(jobId, "image_generation", "completed", 100, `Generated ${prompts.length} image candidates.`);
+  await updateStage(
+    jobId,
+    "image_approval",
+    "running",
+    0,
+    `Review ${prompts.length} generated images and approve or reject each.`,
+  );
 }
 
 async function generateTextArtifact(
@@ -353,14 +425,21 @@ async function createBulletPoints(jobId: string, audioFilePath: string, instruct
   await appendJobLog(jobId, "info", "bullet_points", `Audio duration detected: ${Math.ceil(duration / 60)} minutes.`);
   const progressDir = getJobProgressDir(jobId);
   const audioPartsDir = path.join(progressDir, "audio-parts");
-  const bulletPointsDir = path.join(progressDir, "bullet-points");
+  const bulletPointOutputsDir = getArtifactOutputsDir(jobId, "bulletPoints");
   await fs.mkdir(audioPartsDir, { recursive: true });
-  await fs.mkdir(bulletPointsDir, { recursive: true });
+  await fs.mkdir(bulletPointOutputsDir, { recursive: true });
 
   if (duration <= MAX_DIRECT_AUDIO_SECONDS) {
     await updateStage(jobId, "bullet_points", "running", 50, "Using direct audio processing.");
     await appendJobLog(jobId, "info", "bullet_points", "Audio is within direct processing limits.");
-    return sendAudioMessage(audioFilePath, instructions, buildBulletPointsPrompt());
+    const existingOutput = await readArtifactOutput(jobId, "bulletPoints", "part-001");
+    if (existingOutput) {
+      return existingOutput.text;
+    }
+
+    const output = await sendAudioMessage(audioFilePath, instructions, buildBulletPointsPrompt());
+    await saveArtifactOutput(jobId, "bulletPoints", "part-001", "Part 1", output);
+    return output;
   }
 
   const parts = Math.ceil(duration / MAX_DIRECT_AUDIO_SECONDS);
@@ -373,11 +452,11 @@ async function createBulletPoints(jobId: string, audioFilePath: string, instruct
     const partDuration = Math.min(MAX_DIRECT_AUDIO_SECONDS, duration - startTime);
     const partName = `part-${String(partNumber).padStart(3, "0")}.mp3`;
     const partPath = path.join(audioPartsDir, partName);
-    const bulletPointPath = path.join(bulletPointsDir, `${partName}.txt`);
+    const outputId = `part-${String(partNumber).padStart(3, "0")}`;
 
-    const existingOutput = await readExistingBulletPointOutput(bulletPointPath);
+    const existingOutput = await readArtifactOutput(jobId, "bulletPoints", outputId);
     if (existingOutput) {
-      partOutputs.push(existingOutput);
+      partOutputs.push(existingOutput.text);
       await appendJobLog(jobId, "info", "bullet_points", `Reusing ${partName} from previous processing.`);
       const reusedProgress = Math.round((partNumber / parts) * 90) + 10;
       await updateStage(jobId, "bullet_points", "running", reusedProgress, `Reused part ${partNumber} of ${parts}.`);
@@ -387,7 +466,7 @@ async function createBulletPoints(jobId: string, audioFilePath: string, instruct
     await appendJobLog(jobId, "info", "bullet_points", `Creating and processing ${partName}.`);
     await splitAudio(audioFilePath, partPath, startTime, partDuration);
     const output = await sendAudioMessage(partPath, instructions, buildBulletPointsPrompt());
-    await fs.writeFile(bulletPointPath, output, "utf-8");
+    await saveArtifactOutput(jobId, "bulletPoints", outputId, `Part ${partNumber}`, output);
     partOutputs.push(output);
 
     const progress = Math.round((partNumber / parts) * 90) + 10;
@@ -395,15 +474,6 @@ async function createBulletPoints(jobId: string, audioFilePath: string, instruct
   }
 
   return sendTextMessage(instructions, buildSynthesisPrompt(partOutputs));
-}
-
-async function readExistingBulletPointOutput(filePath: string): Promise<string | null> {
-  try {
-    const content = (await fs.readFile(filePath, "utf-8")).trim();
-    return content.length > 0 ? content : null;
-  } catch {
-    return null;
-  }
 }
 
 async function sendAudioMessage(audioFilePath: string, instructions: string, prompt: string): Promise<string> {
@@ -608,15 +678,76 @@ Do not include any quotes or punctuation.
 Do not include any here is your title preamble in the title.`;
 }
 
-function buildImagePrompt(story: string): string {
+function buildImagePromptSetPrompt(story: string): string {
   return `${story}
 
-Pick a scene from the above story and provide a Midjourney prompt for the chosen scene.
-The prompt should be descriptive and vivid, capturing the essence of the scene.
-Avoid complex scenes with lots of characters or actions.
-Focus on scenic descriptions, atmosphere, and mood.
-Do not focus on specific characters or intricate details.
-Do not include any here is your prompt preamble in the prompt.`;
+Create exactly three image prompts for three different parts of the story: an early moment, a middle moment, and a late moment.
+Each prompt should describe a distinct visual scene from that part of the story.
+Avoid complex scenes with too many characters or actions.
+Focus on scenic descriptions, atmosphere, lighting, and mood.
+Do not focus on specific facial details or intricate costume details.
+Respond with JSON only using this exact shape:
+[
+  {"storyPart":"Early story","prompt":"..."},
+  {"storyPart":"Middle story","prompt":"..."},
+  {"storyPart":"Late story","prompt":"..."}
+]
+Do not include markdown fences or any extra commentary.`;
+}
+
+function parseImagePrompts(input: string): JobImagePrompt[] {
+  const parsedJson = tryParseImagePromptJson(input);
+  if (parsedJson.length === 3) {
+    return parsedJson;
+  }
+
+  const fallbackPrompts = input
+    .split(/\n\s*\n/)
+    .map((chunk) => chunk.trim())
+    .filter((chunk) => chunk.length > 0)
+    .slice(0, 3)
+    .map((chunk, index) => {
+      const [firstLine, ...rest] = chunk.split("\n");
+      const headerMatch = firstLine.match(/^(?:\d+[).:-]?\s*)?([^:]+):\s*(.+)$/);
+      return JobImagePrompt.parse({
+        id: `prompt-${index + 1}`,
+        label: `Image ${index + 1}`,
+        storyPart: headerMatch?.[1]?.trim() || `Part ${index + 1}`,
+        prompt: headerMatch?.[2]?.trim() || [firstLine, ...rest].join(" ").trim(),
+      });
+    });
+
+  if (fallbackPrompts.length === 3) {
+    return fallbackPrompts;
+  }
+
+  throw new Error("Unable to parse image prompts from the generated response.");
+}
+
+function tryParseImagePromptJson(input: string): JobImagePrompt[] {
+  try {
+    const parsed = JSON.parse(input) as Array<{ storyPart?: string; prompt?: string }>;
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.slice(0, 3).map((entry, index) =>
+      JobImagePrompt.parse({
+        id: `prompt-${index + 1}`,
+        label: `Image ${index + 1}`,
+        storyPart:
+          typeof entry.storyPart === "string" && entry.storyPart.trim().length > 0
+            ? entry.storyPart.trim()
+            : `Part ${index + 1}`,
+        prompt: typeof entry.prompt === "string" ? entry.prompt.trim() : "",
+      }),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function formatImagePromptArtifact(prompts: JobImagePrompt[]): string {
+  return prompts.map((prompt) => `${prompt.label} (${prompt.storyPart})\n${prompt.prompt}`).join("\n\n");
 }
 
 function buildLyricsPrompt(story: string, verseCount: number): string {

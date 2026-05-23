@@ -304,6 +304,17 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         gap: 0.35rem;
       }
 
+      .workflow-stage-link {
+        width: 100%;
+        display: inline-flex;
+        text-decoration: none;
+        color: inherit;
+      }
+
+      .workflow-stage-link:hover {
+        text-decoration: none;
+      }
+
       .workflow-stage {
         width: 100%;
         min-height: 3.5rem;
@@ -318,13 +329,10 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         letter-spacing: 0.08em;
         text-transform: uppercase;
         box-shadow: var(--shadow-normal);
+        cursor: pointer;
       }
 
-      .workflow-stage[tabindex] {
-        cursor: help;
-      }
-
-      .workflow-stage:focus-visible {
+      .workflow-stage-link:focus-visible .workflow-stage {
         outline: 2px solid var(--color-accent);
         outline-offset: 4px;
       }
@@ -641,12 +649,12 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
           ${this.job?.stages.map(
             (stage) => html`
               <rpg-chronicler-tooltip>
-                <div
-                  class=${`workflow-stage ${stage.status}`}
-                  tabindex="0"
+                <a
+                  class="workflow-stage-link"
+                  href=${this.renderStagePath(stage.name)}
                   aria-label=${`${stage.label}: ${stage.status}`}>
-                  ${STAGE_ABBREVIATIONS[stage.name]}
-                </div>
+                  <div class=${`workflow-stage ${stage.status}`}>${STAGE_ABBREVIATIONS[stage.name]}</div>
+                </a>
                 <div slot="content">${this.renderWorkflowTooltipContent(stage)}</div>
               </rpg-chronicler-tooltip>
             `,

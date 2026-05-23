@@ -264,6 +264,21 @@ function normalizeStages(stages: unknown): JobStage[] {
 
 function normalizeJob(job: unknown): JobIndex {
   const base = typeof job === "object" && job !== null ? (job as Record<string, unknown>) : {};
+  const stages = normalizeStages(base.stages);
+  const notionStage = stages.find((stage) => stage.name === "notion");
+  const notionBase = base.notion ?? createNotionState();
+  const notionStatus =
+    typeof (notionBase as { status?: unknown }).status === "string"
+      ? (notionBase as { status: string }).status
+      : createNotionState().status;
+  const normalizedNotion =
+    notionStatus === "sending" && notionStage?.status === JobStageStatus.enum.failed
+      ? {
+          ...notionBase,
+          status: "failed",
+        }
+      : notionBase;
+
   return JobIndex.parse({
     ...base,
     instructionsText: typeof base.instructionsText === "string" ? base.instructionsText : null,
@@ -274,12 +289,12 @@ function normalizeJob(job: unknown): JobIndex {
     updatedAt: typeof base.updatedAt === "string" ? base.updatedAt : now(),
     currentStage: base.currentStage ?? null,
     errorMessage: typeof base.errorMessage === "string" ? base.errorMessage : null,
-    stages: normalizeStages(base.stages),
+    stages,
     artifacts: Array.isArray(base.artifacts) ? base.artifacts : createArtifacts(),
     image: normalizeImageState(base.image),
     song: base.song ?? createSongState(),
     contentful: base.contentful ?? createContentful(),
-    notion: base.notion ?? createNotionState(),
+    notion: normalizedNotion,
   });
 }
 

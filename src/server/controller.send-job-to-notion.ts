@@ -26,26 +26,39 @@ export class SendJobToNotionController extends AbstractController<NoBodyParams, 
     }));
     await updateStage(pathParams.jobId, "notion", "running", 50, "Sending DM notes to Notion.");
 
-    const notionPage = await createDmNotesPage({
-      title: current.contentful.title ?? current.file,
-      adventureTitle: current.submission?.adventure?.title ?? null,
-      dmNotes: current.contentful.dmNotes,
-      story: current.contentful.story,
-      contentfulUrl: current.contentful.entryUrl,
-    });
+    try {
+      const notionPage = await createDmNotesPage({
+        title: current.contentful.title ?? current.file,
+        adventureTitle: current.submission?.adventure?.title ?? null,
+        dmNotes: current.contentful.dmNotes,
+        story: current.contentful.story,
+        contentfulUrl: current.contentful.entryUrl,
+      });
 
-    await updateJob(pathParams.jobId, (job) => ({
-      ...job,
-      notion: {
-        ...job.notion,
-        status: "sent",
-        pageId: notionPage.pageId,
-        pageUrl: notionPage.pageUrl,
-        sentAt: new Date().toISOString(),
-      },
-    }));
-    await updateStage(pathParams.jobId, "notion", "completed", 100, "Sent DM notes to Notion.");
-    return readJobDetail(pathParams.jobId);
+      await updateJob(pathParams.jobId, (job) => ({
+        ...job,
+        notion: {
+          ...job.notion,
+          status: "sent",
+          pageId: notionPage.pageId,
+          pageUrl: notionPage.pageUrl,
+          sentAt: new Date().toISOString(),
+        },
+      }));
+      await updateStage(pathParams.jobId, "notion", "completed", 100, "Sent DM notes to Notion.");
+      return readJobDetail(pathParams.jobId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to send DM notes to Notion.";
+      await updateJob(pathParams.jobId, (job) => ({
+        ...job,
+        notion: {
+          ...job.notion,
+          status: "failed",
+        },
+      }));
+      await updateStage(pathParams.jobId, "notion", "failed", 0, message);
+      throw error;
+    }
   }
 }
 

@@ -64,6 +64,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
   @state() private savingSongFields: Partial<Record<ArtifactKey, boolean>> = {};
   @state() private savingContentfulFields: Partial<Record<ArtifactKey, boolean>> = {};
   @state() private restarting = false;
+  @state() private sendingToNotion = false;
   private eventSource: EventSource | null = null;
 
   static override styles = [
@@ -1028,6 +1029,9 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
     if (!this.job) {
       return html``;
     }
+    const notionStage = this.job.stages.find((stage) => stage.name === "notion") ?? null;
+    const notionFailed = this.job.notion.status === "failed" || notionStage?.status === "failed";
+    const notionSending = this.sendingToNotion;
     if (this.job.notion.pageUrl) {
       return html`
         <div class="contentful-preview">
@@ -1039,11 +1043,18 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
     return html`
       <div class="contentful-preview">
         <div><strong>Status</strong></div>
-        <div>${this.job.notion.status}</div>
-        <button
-          ?disabled=${this.job.notion.status === "sending" || !this.job.contentful.entryUrl}
-          @click=${this.handleSendToNotion}>
-          ${this.job.notion.status === "sending" ? "Sending..." : "Send DM notes to Notion"}
+        <div>${notionFailed ? "failed" : this.job.notion.status}</div>
+        ${notionStage?.message
+          ? html`
+              <div class="stage-message">${notionStage.message}</div>
+            `
+          : html``}
+        <button ?disabled=${notionSending || !this.job.contentful.entryUrl} @click=${this.handleSendToNotion}>
+          ${notionSending
+            ? "Sending..."
+            : notionFailed || this.job.notion.status === "sending"
+              ? "Retry sending DM notes to Notion"
+              : "Send DM notes to Notion"}
         </button>
       </div>
     `;
@@ -1208,11 +1219,14 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
   }
 
   private async handleSendToNotion(): Promise<void> {
+    this.sendingToNotion = true;
     try {
       this.job = await sendJobToNotionService.fetch({ jobId: this.params.jobId });
       dispatch(this, SuccessEvent("DM notes sent to Notion."));
     } catch (error) {
       dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to send DM notes to Notion."));
+    } finally {
+      this.sendingToNotion = false;
     }
   }
 

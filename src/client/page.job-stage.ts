@@ -4,6 +4,7 @@ import { parseRouteParams } from "../shared/util.route-params.js";
 import { getJobService } from "../shared/service.get-job.js";
 import { streamJobService } from "../shared/service.stream-job.js";
 import { regenerateBulletPointOutputService } from "../shared/service.regenerate-bullet-point-output.js";
+import { restartJobStageService } from "../shared/service.restart-job-stage.js";
 import {
   ArtifactDetail,
   JobArtifactOutput,
@@ -45,6 +46,7 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
   @state() private job: JobDetail | null = null;
   @state() private editors: Record<string, string> = {};
   @state() private regeneratingOutputs: Record<string, boolean> = {};
+  @state() private restartingStage = false;
   @state() private copyState: "idle" | "copied" | "error" = "idle";
   private eventSource: EventSource | null = null;
 
@@ -329,6 +331,7 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
     const previousStage = stageIndex > 0 ? this.job.stages[stageIndex - 1] : null;
     const nextStage =
       stageIndex >= 0 && stageIndex < this.job.stages.length - 1 ? this.job.stages[stageIndex + 1] : null;
+    const canForceRestart = Boolean(stage && stage.kind === "ai");
 
     return html`
       <main>
@@ -344,6 +347,15 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
                   `
                 : html``}
               <a class="link-chip" href=${`/jobs/${this.params.jobId}/logs`}>Logs ${detailsIcon}</a>
+              ${canForceRestart
+                ? html`
+                    <button
+                      ?disabled=${this.restartingStage}
+                      @click=${() => stage && this.handleForceRestartStage(stage.name)}>
+                      ${refreshIcon} ${this.restartingStage ? "Restarting..." : "Force restart"}
+                    </button>
+                  `
+                : html``}
               ${nextStage
                 ? html`
                     <a class="link-chip" href=${this.renderStagePath(nextStage.name)}>
@@ -789,6 +801,18 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
         ...this.regeneratingOutputs,
         [output.id]: false,
       };
+    }
+  }
+
+  private async handleForceRestartStage(stageName: JobStageName): Promise<void> {
+    this.restartingStage = true;
+    try {
+      this.job = await restartJobStageService.fetch({ jobId: this.params.jobId, stageName });
+      dispatch(this, SuccessEvent(`${stageName} force restarted.`));
+    } catch (error) {
+      dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to force restart the stage."));
+    } finally {
+      this.restartingStage = false;
     }
   }
 

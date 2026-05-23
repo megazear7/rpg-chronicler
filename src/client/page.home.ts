@@ -4,6 +4,7 @@ import { globalStyles } from "./styles.global.js";
 import { RpgChroniclerAppProvider } from "./provider.app.js";
 import { listJobsService } from "../shared/service.list-jobs.js";
 import { JobIndex } from "../shared/type.job.js";
+import { getJobStageLabel, humanizeEnumValue } from "../shared/util.display.js";
 import { dispatch } from "./util.events.js";
 import { WarningEvent } from "./event.warning.js";
 import { NavigationEvent } from "./event.navigation.js";
@@ -190,6 +191,30 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
         background: color-mix(in srgb, var(--color-secondary-surface) 88%, black);
         box-shadow: var(--shadow-normal);
         border: 1px solid color-mix(in srgb, var(--color-primary-text) 10%, transparent);
+        color: var(--color-primary-text);
+        text-decoration: none;
+        transition: var(--transition-all);
+      }
+
+      .recent-card:hover {
+        transform: translateY(-1px);
+        box-shadow: var(--shadow-hover);
+        border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+      }
+
+      .recent-card:focus-visible,
+      .job-title-link:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 4px;
+      }
+
+      .job-title-link {
+        color: inherit;
+        text-decoration: none;
+      }
+
+      .job-title-link:hover {
+        text-decoration: underline;
       }
 
       .status-pill {
@@ -208,6 +233,11 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
       .status-pill.completed {
         background: color-mix(in srgb, var(--color-success) 22%, transparent);
         color: var(--color-success);
+      }
+
+      .status-pill.paused {
+        background: color-mix(in srgb, var(--color-2) 20%, transparent);
+        color: var(--color-2);
       }
 
       .status-pill.failed {
@@ -308,15 +338,13 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
               <div class="eyebrow">Latest Job</div>
               ${this.latestJob
                 ? html`
-                    <h2>${this.latestJob.file}</h2>
+                    <h2><a class="job-title-link" href=${`/jobs/${this.latestJob.id}`}>${this.latestJob.file}</a></h2>
                     <div class="job-meta">
                       <div class="meta-row">
-                        <span>ID</span>
-                        <strong>${this.latestJob.id}</strong>
-                      </div>
-                      <div class="meta-row">
                         <span>Status</span>
-                        <strong class=${`status-pill ${this.latestJob.status}`}>${this.latestJob.status}</strong>
+                        <strong class=${`status-pill ${this.latestJob.status}`}>
+                          ${humanizeEnumValue(this.latestJob.status)}
+                        </strong>
                       </div>
                       <div class="meta-row">
                         <span>Total progress</span>
@@ -324,7 +352,7 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
                       </div>
                       <div class="meta-row">
                         <span>Current stage</span>
-                        <strong>${this.latestJob.currentStage ?? "complete"}</strong>
+                        <strong>${getJobStageLabel(this.latestJob.currentStage)}</strong>
                       </div>
                     </div>
                   `
@@ -345,13 +373,13 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
                   <div class="recent-grid">
                     ${this.recentJobs.map(
                       (job) => html`
-                        <article class="recent-card">
-                          <div class="status-pill ${job.status}">${job.status}</div>
+                        <a class="recent-card" href=${`/jobs/${job.id}`}>
+                          <div class="status-pill ${job.status}">${humanizeEnumValue(job.status)}</div>
                           <strong>${job.file}</strong>
                           <div>Progress ${job.totalProgress}%</div>
-                          <div>Stage ${job.currentStage ?? "complete"}</div>
-                          <a href=${`/jobs/${job.id}`}>Open job ${rightArrowIcon}</a>
-                        </article>
+                          <div>Stage ${getJobStageLabel(job.currentStage)}</div>
+                          <div>Open job ${rightArrowIcon}</div>
+                        </a>
                       `,
                     )}
                   </div>

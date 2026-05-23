@@ -123,7 +123,7 @@ function normalizeImageState(image: unknown): JobImageState {
   });
 
   const reviewedCount = generatedAssets.filter((asset) => asset.approvedAt || asset.rejectedAt).length;
-  const totalCount = prompts.length > 0 ? prompts.length : generatedAssets.length;
+  const totalCount = generatedAssets.length > 0 ? generatedAssets.length : prompts.length;
   const approvedCount = generatedAssets.filter((asset) => asset.approvedAt && !asset.rejectedAt).length;
   const status = (() => {
     if (typeof base.status !== "string") {
@@ -206,6 +206,9 @@ function deriveJobStatus(job: JobIndex): JobStatus {
   if (job.errorMessage) {
     return JobStatus.enum.failed;
   }
+  if (job.pausedAt) {
+    return JobStatus.enum.paused;
+  }
   if (job.stages.every((stage) => stage.status === JobStageStatus.enum.completed)) {
     return JobStatus.enum.completed;
   }
@@ -219,6 +222,11 @@ function deriveCurrentStage(job: JobIndex): JobStageName | null {
   const runningStage = job.stages.find((stage) => stage.status === JobStageStatus.enum.running);
   if (runningStage) {
     return runningStage.name;
+  }
+
+  const pausedStage = job.stages.find((stage) => stage.status === JobStageStatus.enum.paused);
+  if (pausedStage) {
+    return pausedStage.name;
   }
 
   const pendingStage = job.stages.find((stage) => stage.status !== JobStageStatus.enum.completed);
@@ -284,12 +292,19 @@ function normalizeJob(job: unknown): JobIndex {
 
   return JobIndex.parse({
     ...base,
+    processingRunId:
+      typeof base.processingRunId === "string" && base.processingRunId.length > 0
+        ? base.processingRunId
+        : typeof base.id === "string" && base.id.length > 0
+          ? base.id
+          : randomUUID(),
     instructionsText: typeof base.instructionsText === "string" ? base.instructionsText : null,
     submission: base.submission ?? null,
     status: typeof base.status === "string" ? base.status : JobStatus.enum.queued,
     totalProgress: typeof base.totalProgress === "number" ? base.totalProgress : 0,
     createdAt: typeof base.createdAt === "string" ? base.createdAt : now(),
     updatedAt: typeof base.updatedAt === "string" ? base.updatedAt : now(),
+    pausedAt: typeof base.pausedAt === "string" ? base.pausedAt : null,
     archivedAt: typeof base.archivedAt === "string" ? base.archivedAt : null,
     currentStage: base.currentStage ?? null,
     usage: normalizeUsageBreakdown(base.usage),
@@ -334,7 +349,7 @@ function hasContentfulInputs(job: JobIndex): boolean {
 }
 
 function summarizeImageReview(image: JobImageState): { total: number; reviewed: number; approved: number } {
-  const total = image.prompts.length;
+  const total = image.generatedAssets.length;
   const reviewed = image.generatedAssets.filter((asset) => asset.approvedAt || asset.rejectedAt).length;
   const approved = image.generatedAssets.filter((asset) => asset.approvedAt && !asset.rejectedAt).length;
   return { total, reviewed, approved };
@@ -406,6 +421,7 @@ export async function createJob(
   const job = hydrateJob(
     JobIndex.parse({
       id,
+      processingRunId: randomUUID(),
       file: fileName,
       instructionsText,
       submission,
@@ -413,6 +429,7 @@ export async function createJob(
       totalProgress: 0,
       createdAt: timestamp,
       updatedAt: timestamp,
+      pausedAt: null,
       archivedAt: null,
       currentStage: JobStageName.enum.upload,
       usage: createEmptyUsageBreakdown(),
@@ -518,21 +535,32 @@ export async function failJob(jobId: string, name: JobStageName, message: string
   return failedJob;
 }
 
-export async function resetJobForRestart(jobId: string, restartStage: JobStageName): Promise<JobIndex> {
+export async function resetJobForRestart(
+  jobId: string,
+  restartStage: JobStageName,
+  options?: { resetFutureStages?: boolean },
+): Promise<JobIndex> {
   const restartIndex = jobStageOrder.indexOf(restartStage);
-  const imageGenerationIndex = jobStageOrder.indexOf("image_generation");
-  const songPromptIndex = jobStageOrder.indexOf("song_prompt");
+  const resetFutureStages = options?.resetFutureStages ?? true;
 
   if (restartIndex < 0) {
     throw new Error(`Unknown restart stage: ${restartStage}`);
   }
 
+  const shouldResetImageState = restartStage === "image_generation";
+  const shouldResetSongState = restartStage === "lyrics" || restartStage === "song_prompt";
+
   return updateJob(jobId, (job) =>
     JobIndex.parse({
       ...job,
+      processingRunId: randomUUID(),
+      pausedAt: null,
       errorMessage: null,
       stages: job.stages.map((stage) => {
-        if (jobStageOrder.indexOf(stage.name) < restartIndex) {
+        const stageIndex = jobStageOrder.indexOf(stage.name);
+        const shouldResetStage = resetFutureStages ? stageIndex >= restartIndex : stage.name === restartStage;
+
+        if (!shouldResetStage) {
           return stage;
         }
 
@@ -544,19 +572,16 @@ export async function resetJobForRestart(jobId: string, restartStage: JobStageNa
           message: undefined,
         };
       }),
-      image: restartIndex <= imageGenerationIndex ? createImageState() : job.image,
-      song: restartIndex <= songPromptIndex ? createSongState() : job.song,
-      contentful:
-        restartIndex <= songPromptIndex
-          ? {
-              ...job.contentful,
-              status: "not_ready",
-              entryId: null,
-              entryUrl: null,
-              sentAt: null,
-            }
-          : job.contentful,
-      notion: restartIndex <= songPromptIndex ? createNotionState() : job.notion,
+      image: shouldResetImageState ? createImageState() : job.image,
+      song: shouldResetSongState ? createSongState() : job.song,
+      contentful: {
+        ...job.contentful,
+        status: "not_ready",
+        entryId: null,
+        entryUrl: null,
+        sentAt: null,
+      },
+      notion: restartIndex <= jobStageOrder.indexOf("notion") ? createNotionState() : job.notion,
     }),
   );
 }
@@ -947,7 +972,7 @@ export async function saveGeneratedImageAsset(
       image: {
         ...job.image,
         status: "awaiting_approval",
-        generatedAssets: [asset, ...job.image.generatedAssets.filter((entry) => entry.promptId !== promptId)],
+        generatedAssets: [asset, ...job.image.generatedAssets],
         lastGeneratedAt: createdAt,
       },
     }),
@@ -1088,6 +1113,89 @@ export async function restoreJob(jobId: string): Promise<JobIndex> {
       archivedAt: null,
     }),
   );
+}
+
+export async function pauseJob(jobId: string): Promise<JobIndex> {
+  const updatedJob = await updateJob(jobId, (job) => {
+    const runningStages = job.stages.filter(
+      (stage) => stage.status === JobStageStatus.enum.running && stage.kind === "ai",
+    );
+    const stageNamesToPause = new Set(runningStages.map((stage) => stage.name));
+
+    if (runningStages.length === 0) {
+      if (job.stages.some((stage) => stage.status === JobStageStatus.enum.paused && stage.kind === "ai")) {
+        return job;
+      }
+
+      const currentStage = job.currentStage
+        ? (job.stages.find((stage) => stage.name === job.currentStage) ?? null)
+        : null;
+      if (
+        currentStage &&
+        currentStage.kind === "ai" &&
+        currentStage.status !== JobStageStatus.enum.completed &&
+        currentStage.status !== JobStageStatus.enum.failed
+      ) {
+        stageNamesToPause.add(currentStage.name);
+      }
+
+      if (stageNamesToPause.size === 0) {
+        throw new Error("Only actively running AI jobs can be paused.");
+      }
+    }
+
+    return JobIndex.parse({
+      ...job,
+      pausedAt: now(),
+      stages: job.stages.map((stage) =>
+        stageNamesToPause.has(stage.name)
+          ? {
+              ...stage,
+              status: JobStageStatus.enum.paused,
+              updatedAt: now(),
+              message: stage.message ?? "Processing paused.",
+            }
+          : stage,
+      ),
+    });
+  });
+
+  await appendJobLog(jobId, "warning", updatedJob.currentStage, "Job paused.");
+  return updatedJob;
+}
+
+export async function resumeJob(jobId: string): Promise<JobIndex> {
+  const updatedJob = await updateJob(jobId, (job) => {
+    const pausedStages = job.stages.filter(
+      (stage) => stage.status === JobStageStatus.enum.paused && stage.kind === "ai",
+    );
+
+    if (pausedStages.length === 0) {
+      if (job.status === JobStatus.enum.running) {
+        return job;
+      }
+
+      throw new Error("Only paused AI jobs can be resumed.");
+    }
+
+    return JobIndex.parse({
+      ...job,
+      pausedAt: null,
+      stages: job.stages.map((stage) =>
+        stage.status === JobStageStatus.enum.paused
+          ? {
+              ...stage,
+              status: JobStageStatus.enum.running,
+              updatedAt: now(),
+              message: stage.message === "Processing paused." ? "Resuming processing." : stage.message,
+            }
+          : stage,
+      ),
+    });
+  });
+
+  await appendJobLog(jobId, "info", updatedJob.currentStage, "Job resumed.");
+  return updatedJob;
 }
 
 export async function listJobs(

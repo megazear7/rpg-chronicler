@@ -10,13 +10,16 @@ import { sendJobToContentfulService } from "../shared/service.send-job-to-conten
 import { sendJobToNotionService } from "../shared/service.send-job-to-notion.js";
 import { updateArtifactService } from "../shared/service.update-artifact.js";
 import { archiveJobService } from "../shared/service.archive-job.js";
+import { pauseJobService } from "../shared/service.pause-job.js";
 import { restoreJobService } from "../shared/service.restore-job.js";
+import { resumeJobService } from "../shared/service.resume-job.js";
 import { ArtifactDetail, ArtifactKey, JobDetail, JobStage, JobStageName } from "../shared/type.job.js";
+import { getJobStageLabel, humanizeEnumValue } from "../shared/util.display.js";
 import { UsageBreakdown, UsageSummary } from "../shared/type.prompt.js";
 import { globalStyles } from "./styles.global.js";
 import { RpgChroniclerAppProvider } from "./provider.app.js";
 import "./component.tooltip.js";
-import { copyIcon, detailsIcon, leftArrowIcon, refreshIcon, xIcon } from "./icons.js";
+import { copyIcon, detailsIcon, leftArrowIcon, refreshIcon, rightArrowIcon, xIcon } from "./icons.js";
 import { restartJobService } from "../shared/service.restart-job.js";
 import { restartJobStageService } from "../shared/service.restart-job-stage.js";
 import { dispatch } from "./util.events.js";
@@ -56,11 +59,19 @@ const STAGE_ABBREVIATIONS: Record<JobStageName, string> = {
   notion: "NO",
 };
 
+const IMAGE_GROUP_LABELS = ["Start", "Middle", "End"] as const;
+
+type JobImageAssetEntry = JobDetail["image"]["generatedAssets"][number];
+type JobImagePromptEntry = JobDetail["image"]["prompts"][number];
+type JobImageGroup = { prompt: JobImagePromptEntry; images: JobImageAssetEntry[] };
+type LightboxImage = { src: string; alt: string };
+
 @customElement("rpg-chronicler-job-page")
 export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
   private params = parseRouteParams("/jobs/:jobId", window.location.pathname);
   @state() private job: JobDetail | null = null;
-  @state() private lightboxImage: { src: string; alt: string } | null = null;
+  @state() private lightboxImages: LightboxImage[] = [];
+  @state() private lightboxImageIndex = 0;
   @state() private selectedSongUrl = "";
   @state() private songReviewEditors: Partial<Record<ArtifactKey, string>> = {};
   @state() private contentfulEditors: Partial<Record<ArtifactKey, string>> = {};
@@ -70,6 +81,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
   @state() private restarting = false;
   @state() private restartingStageName: JobStageName | null = null;
   @state() private updatingArchiveState = false;
+  @state() private updatingProcessingState = false;
   @state() private sendingToNotion = false;
   private eventSource: EventSource | null = null;
 
@@ -200,7 +212,6 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         gap: var(--size-small);
         flex-wrap: wrap;
         align-items: center;
-        justify-content: space-between;
       }
 
       .song-review-field,
@@ -247,6 +258,13 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         font-size: var(--font-small);
       }
 
+      .stage-summary {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        justify-content: space-between;
+      }
+
       .status-pill.running,
       .stage-card.running .stage-status {
         background: color-mix(in srgb, var(--color-accent) 24%, transparent);
@@ -257,6 +275,12 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
       .stage-card.completed .stage-status {
         background: color-mix(in srgb, var(--color-success) 22%, transparent);
         color: var(--color-success);
+      }
+
+      .status-pill.paused,
+      .stage-card.paused .stage-status {
+        background: color-mix(in srgb, var(--color-2) 20%, transparent);
+        color: var(--color-2);
       }
 
       .status-pill.failed,
@@ -275,7 +299,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         display: inline-flex;
         align-items: center;
         width: fit-content;
-        padding: 0.35rem 0.8rem;
+        padding: var(--size-tiny) var(--size-medium);
         border-radius: 999px;
       }
 
@@ -358,6 +382,11 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         color: var(--color-success);
       }
 
+      .workflow-stage.paused {
+        background: color-mix(in srgb, var(--color-2) 20%, transparent);
+        color: var(--color-2);
+      }
+
       .workflow-stage.failed {
         background: color-mix(in srgb, var(--color-error) 22%, transparent);
         color: #ff9797;
@@ -415,6 +444,68 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
       .image-card {
         display: grid;
         gap: var(--size-medium);
+      }
+
+      .contentful-image-groups,
+      .image-group-list {
+        display: grid;
+        gap: var(--size-large);
+      }
+
+      .image-carousel {
+        display: grid;
+        gap: var(--size-small);
+      }
+
+      .image-carousel-frame {
+        display: flex;
+        gap: var(--size-small);
+        align-items: start;
+      }
+
+      .image-review-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+        gap: var(--size-small);
+      }
+
+      .image-review-item {
+        display: grid;
+        gap: var(--size-small);
+        align-content: start;
+      }
+
+      .image-carousel-header,
+      .image-lightbox-toolbar,
+      .image-lightbox-navigation {
+        display: flex;
+        gap: var(--size-small);
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .image-carousel-count,
+      .image-lightbox-count,
+      .image-status {
+        font-size: var(--font-small);
+        opacity: 0.82;
+      }
+
+      .image-lightbox-caption {
+        max-width: 72rem;
+      }
+
+      .review-action.approved {
+        background: color-mix(in srgb, var(--color-success) 22%, transparent);
+        color: var(--color-success);
+        border-color: color-mix(in srgb, var(--color-success) 35%, transparent);
+      }
+
+      .review-action.rejected {
+        background: color-mix(in srgb, var(--color-error) 22%, transparent);
+        color: #ff9797;
+        border-color: color-mix(in srgb, var(--color-error) 35%, transparent);
       }
 
       .song-embed {
@@ -529,6 +620,15 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
             "song_prompt",
           ].includes(stage.name) && stage.status === "failed",
       );
+    const canPauseJob = this.job.status === "running";
+    const canResumeJob = this.job.status === "paused";
+    const processingActionLabel = this.updatingProcessingState
+      ? canResumeJob
+        ? "Resuming..."
+        : "Pausing..."
+      : canResumeJob
+        ? "Resume"
+        : "Pause";
 
     return html`
       <main>
@@ -536,6 +636,13 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
           <div class="version-actions">
             <a href="/jobs">${leftArrowIcon} Jobs</a>
             <div class="version-actions">
+              ${canPauseJob || canResumeJob
+                ? html`
+                    <button ?disabled=${this.updatingProcessingState} @click=${this.handleToggleProcessingState}>
+                      ${processingActionLabel}
+                    </button>
+                  `
+                : html``}
               ${canRestartFailedJob
                 ? html`
                     <button ?disabled=${this.restarting} @click=${this.handleRestartFromFailed}>
@@ -563,7 +670,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
           <div class="hero-grid">
             <div class="metric">
               <span>Status</span>
-              <strong class=${`status-pill ${this.job.status}`}>${this.job.status}</strong>
+              <strong class=${`status-pill ${this.job.status}`}>${humanizeEnumValue(this.job.status)}</strong>
             </div>
             <div class="metric">
               <span>Archived</span>
@@ -575,7 +682,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
             </div>
             <div class="metric">
               <span>Current stage</span>
-              <strong>${this.job.currentStage ?? "complete"}</strong>
+              <strong>${getJobStageLabel(this.job.currentStage)}</strong>
             </div>
             <div class="metric">
               <span>Artifacts</span>
@@ -643,7 +750,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
           <span class="pill">
             ${this.job?.stages.filter((stage) => stage.status === "completed").length ?? 0} completed
           </span>
-          <span class="pill">${this.job?.currentStage ?? "complete"}</span>
+          <span class="pill">${getJobStageLabel(this.job?.currentStage ?? null)}</span>
         </div>
         <div class="workflow-bar">
           ${this.job?.stages.map(
@@ -652,7 +759,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
                 <a
                   class="workflow-stage-link"
                   href=${this.renderStagePath(stage.name)}
-                  aria-label=${`${stage.label}: ${stage.status}`}>
+                  aria-label=${`${stage.label}: ${humanizeEnumValue(stage.status)}`}>
                   <div class=${`workflow-stage ${stage.status}`}>${STAGE_ABBREVIATIONS[stage.name]}</div>
                 </a>
                 <div slot="content">${this.renderWorkflowTooltipContent(stage)}</div>
@@ -767,8 +874,10 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
   }
 
   private renderStageSummary(stage: JobStage, linkLabel: boolean): TemplateResult {
+    const showStageStatus = stage.status !== "completed" && stage.status !== "pending";
+
     return html`
-      <div>
+      <div class="stage-summary">
         <strong>
           ${linkLabel
             ? html`
@@ -776,15 +885,13 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
               `
             : stage.label}
         </strong>
+        ${showStageStatus
+          ? html`
+              <div class="stage-status">${humanizeEnumValue(stage.status)}</div>
+            `
+          : html``}
       </div>
-      <div class="stage-status">${stage.status}</div>
       <div class="progress"><div class="progress-bar" style=${`width:${stage.progress}%`}></div></div>
-      <div>${stage.progress}%</div>
-      ${stage.message
-        ? html`
-            <div class="stage-message">${stage.message}</div>
-          `
-        : html``}
     `;
   }
 
@@ -854,7 +961,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
     }
 
     const contentful = this.job.contentful;
-    const approvedImages = this.resolveApprovedImages();
+    const approvedImageGroups = this.resolveImageGroups(this.resolveApprovedImages());
     const selectedSongUrl = this.job.song.songUrl;
     const imageReviewComplete =
       this.job.stages.find((stage) => stage.name === "image_approval")?.status === "completed";
@@ -873,7 +980,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
           <div><strong>${contentful.title}</strong></div>
           <pre>${contentful.summary}</pre>
           <div><strong>Approved images</strong></div>
-          ${this.renderContentfulApprovedImages(approvedImages)}
+          ${this.renderContentfulApprovedImages(approvedImageGroups)}
           ${selectedSongUrl
             ? this.renderSongEmbed(selectedSongUrl, "Selected song")
             : html`
@@ -889,7 +996,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
       <div class="contentful-preview">
         ${CONTENTFUL_FIELDS.map((field) => this.renderContentfulField(field.key, field.label, field.multiline))}
         <div><strong>Approved images</strong></div>
-        ${this.renderContentfulApprovedImages(approvedImages)}
+        ${this.renderContentfulApprovedImages(approvedImageGroups)}
         ${selectedSongUrl
           ? this.renderSongEmbed(selectedSongUrl, "Selected song")
           : html`
@@ -904,24 +1011,35 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
     `;
   }
 
-  private renderContentfulApprovedImages(images: JobDetail["image"]["generatedAssets"]): TemplateResult {
-    if (images.length === 0) {
+  private renderContentfulApprovedImages(groups: JobImageGroup[]): TemplateResult {
+    const totalApproved = groups.reduce((sum, group) => sum + group.images.length, 0);
+    if (totalApproved === 0) {
       return html`
         <div>No approved images</div>
       `;
     }
 
     return html`
-      <div class="image-grid">
-        ${images.map((image) => {
-          const imageUrl = `/api/jobs/${this.params.jobId}/images/${image.id}`;
+      <div class="contentful-image-groups">
+        ${groups.map((group, index) => {
+          const groupLabel = this.resolveImageGroupLabel(index);
           return html`
-            <button
-              class="contentful-selected-image-button"
-              @click=${() => this.handleOpenImageLightbox(imageUrl, image.prompt)}
-              aria-label="Open approved image in full page viewer">
-              <img class="contentful-selected-image" src=${imageUrl} alt=${image.prompt} />
-            </button>
+            <article class="image-card">
+              <div class="image-carousel-header">
+                <strong>${groupLabel} images</strong>
+                <span class="image-carousel-count">${group.images.length} selected</span>
+              </div>
+              ${group.images.length > 0
+                ? this.renderImageCarousel(
+                    groupLabel,
+                    group.images,
+                    "contentful-selected-image-button",
+                    "contentful-selected-image",
+                  )
+                : html`
+                    <div>No approved ${groupLabel.toLowerCase()} images.</div>
+                  `}
+            </article>
           `;
         })}
       </div>
@@ -965,67 +1083,92 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
       return html``;
     }
     const reviewedCount = this.job.image.generatedAssets.filter((image) => image.approvedAt || image.rejectedAt).length;
+    const totalCount = this.job.image.generatedAssets.length;
     const approvedCount = this.resolveApprovedImages().length;
-    const prompts = this.job.image.prompts;
+    const groups = this.resolveImageGroups();
     return html`
       <div class="contentful-preview">
         <div class="version-actions">
           <div>
             <strong>Status</strong>
-            <div>${this.job.image.status}</div>
+            <div>${humanizeEnumValue(this.job.image.status)}</div>
           </div>
           <div class="song-review-field-actions">
-            <span class="pill">${reviewedCount}/${prompts.length} reviewed</span>
+            <span class="pill">${reviewedCount}/${totalCount} reviewed</span>
             <span class="pill">${approvedCount} approved</span>
           </div>
         </div>
-        ${prompts.length === 0
+        ${groups.length === 0
           ? html`
               <p>No image prompts have been generated yet.</p>
             `
           : html`
-              <div class="image-grid">
-                ${prompts.map((prompt) => {
-                  const image = this.job?.image.generatedAssets.find((asset) => asset.promptId === prompt.id) ?? null;
-                  const imageUrl = image ? `/api/jobs/${this.params.jobId}/images/${image.id}` : null;
-                  const statusLabel = image?.approvedAt
-                    ? `Approved ${new Date(image.approvedAt).toLocaleString()}`
-                    : image?.rejectedAt
-                      ? `Rejected ${new Date(image.rejectedAt).toLocaleString()}`
-                      : image
-                        ? "Awaiting review"
-                        : "Image not available";
+              <div class="image-group-list">
+                ${groups.map((group, index) => {
+                  const approvedGroupCount = group.images.filter(
+                    (asset) => asset.approvedAt && !asset.rejectedAt,
+                  ).length;
+                  const groupLabel = this.resolveImageGroupLabel(index);
                   return html`
                     <article class="image-card">
-                      <strong>${prompt.label}</strong>
-                      <div>${prompt.storyPart}</div>
-                      ${image && imageUrl
+                      <div class="image-carousel-header">
+                        <strong>${groupLabel} images</strong>
+                        <span class="image-carousel-count">${approvedGroupCount}/${group.images.length} approved</span>
+                      </div>
+                      <div>${group.prompt.storyPart}</div>
+                      <div>${group.prompt.prompt}</div>
+                      ${group.images.length > 0
                         ? html`
-                            <button
-                              class="media-preview-button"
-                              @click=${() => this.handleOpenImageLightbox(imageUrl, prompt.prompt)}
-                              aria-label="Open image preview in full page viewer">
-                              <img class="media-preview" src=${imageUrl} alt=${prompt.prompt} />
-                            </button>
+                            <div class="image-review-grid">
+                              ${group.images.map((image, imageIndex) => {
+                                const imageUrl = `/api/jobs/${this.params.jobId}/images/${image.id}`;
+                                const approveButtonLabel = image.approvedAt ? "Approved" : "Approve image";
+                                const rejectButtonLabel = image.rejectedAt ? "Rejected" : "Reject image";
+                                const approveButtonClass = image.approvedAt
+                                  ? "review-action approved"
+                                  : "review-action";
+                                const rejectButtonClass = image.rejectedAt
+                                  ? "review-action rejected"
+                                  : "review-action secondary";
+
+                                return html`
+                                  <div class="image-review-item">
+                                    <button
+                                      class="media-preview-button"
+                                      @click=${() =>
+                                        this.handleOpenImageLightbox(
+                                          group.images.map((entry, entryIndex) => ({
+                                            src: `/api/jobs/${this.params.jobId}/images/${entry.id}`,
+                                            alt: `${groupLabel} image ${entryIndex + 1}: ${entry.prompt}`,
+                                          })),
+                                          imageIndex,
+                                        )}
+                                      aria-label=${`Open ${groupLabel.toLowerCase()} image ${imageIndex + 1} in full page viewer`}>
+                                      <img
+                                        class="media-preview"
+                                        src=${imageUrl}
+                                        alt=${`${groupLabel} image ${imageIndex + 1}: ${image.prompt}`} />
+                                    </button>
+                                    <div class="song-review-field-actions">
+                                      <button
+                                        class=${approveButtonClass}
+                                        @click=${() => this.handleApproveImage(image.id)}>
+                                        ${approveButtonLabel}
+                                      </button>
+                                      <button
+                                        class=${rejectButtonClass}
+                                        @click=${() => this.handleRejectImage(image.id)}>
+                                        ${rejectButtonLabel}
+                                      </button>
+                                    </div>
+                                  </div>
+                                `;
+                              })}
+                            </div>
                           `
                         : html`
-                            <div>No image available.</div>
+                            <div class="image-status">Images not available</div>
                           `}
-                      <div>${prompt.prompt}</div>
-                      <div>${statusLabel}</div>
-                      <div class="song-review-field-actions">
-                        <button
-                          ?disabled=${!image || Boolean(image.approvedAt) || Boolean(image.rejectedAt)}
-                          @click=${() => image && this.handleApproveImage(image.id)}>
-                          ${image?.approvedAt ? "Approved" : "Approve image"}
-                        </button>
-                        <button
-                          class="secondary"
-                          ?disabled=${!image || Boolean(image.approvedAt) || Boolean(image.rejectedAt)}
-                          @click=${() => image && this.handleRejectImage(image.id)}>
-                          ${image?.rejectedAt ? "Rejected" : "Reject image"}
-                        </button>
-                      </div>
                     </article>
                   `;
                 })}
@@ -1036,17 +1179,44 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
   }
 
   private renderImageLightbox(): TemplateResult {
-    if (!this.lightboxImage) {
+    if (this.lightboxImages.length === 0) {
+      return html``;
+    }
+
+    const imageIndex = this.resolveLightboxImageIndex();
+    const currentImage = this.lightboxImages[imageIndex] ?? null;
+    if (!currentImage) {
       return html``;
     }
 
     return html`
       <div class="image-lightbox" @click=${this.handleCloseImageLightbox}>
         <div class="image-lightbox-dialog" @click=${this.handleImageLightboxDialogClick}>
-          <button class="image-lightbox-close" @click=${this.handleCloseImageLightbox} aria-label="Close image viewer">
-            ${xIcon} Close
-          </button>
-          <img class="image-lightbox-preview" src=${this.lightboxImage.src} alt=${this.lightboxImage.alt} />
+          <div class="image-lightbox-toolbar">
+            <span class="image-lightbox-count">${imageIndex + 1} / ${this.lightboxImages.length}</span>
+            <button
+              class="image-lightbox-close"
+              @click=${this.handleCloseImageLightbox}
+              aria-label="Close image viewer">
+              ${xIcon} Close
+            </button>
+          </div>
+          <div class="image-lightbox-navigation">
+            <button
+              ?disabled=${this.lightboxImages.length <= 1}
+              @click=${() => this.handleShiftLightboxImage(-1)}
+              aria-label="Show previous image">
+              ${leftArrowIcon} Previous
+            </button>
+            <button
+              ?disabled=${this.lightboxImages.length <= 1}
+              @click=${() => this.handleShiftLightboxImage(1)}
+              aria-label="Show next image">
+              Next ${rightArrowIcon}
+            </button>
+          </div>
+          <img class="image-lightbox-preview" src=${currentImage.src} alt=${currentImage.alt} />
+          <div class="image-lightbox-caption">${currentImage.alt}</div>
         </div>
       </div>
     `;
@@ -1062,7 +1232,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         <div class="song-review-header">
           <div>
             <div><strong>Status</strong></div>
-            <div>${this.job.song.status}</div>
+            <div>${humanizeEnumValue(this.job.song.status)}</div>
           </div>
           <a class="link-chip" href="https://suno.com/create" target="_blank" rel="noreferrer">Open Suno create</a>
         </div>
@@ -1158,7 +1328,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
     return html`
       <div class="contentful-preview">
         <div><strong>Status</strong></div>
-        <div>${notionFailed ? "failed" : this.job.notion.status}</div>
+        <div>${humanizeEnumValue(notionFailed ? "failed" : this.job.notion.status)}</div>
         ${notionStage?.message
           ? html`
               <div class="stage-message">${notionStage.message}</div>
@@ -1189,15 +1359,26 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
     this.selectedSongUrl = target.value;
   };
 
-  private handleOpenImageLightbox(src: string, alt: string): void {
-    this.lightboxImage = { src, alt };
+  private handleOpenImageLightbox(images: LightboxImage[], index: number): void {
+    this.lightboxImages = images;
+    this.lightboxImageIndex = Math.min(Math.max(index, 0), Math.max(images.length - 1, 0));
     window.document.body.style.overflow = "hidden";
   }
 
   private handleCloseImageLightbox = (): void => {
-    this.lightboxImage = null;
+    this.lightboxImages = [];
+    this.lightboxImageIndex = 0;
     window.document.body.style.overflow = "auto";
   };
+
+  private handleShiftLightboxImage(delta: number): void {
+    if (this.lightboxImages.length <= 1) {
+      return;
+    }
+
+    this.lightboxImageIndex =
+      (this.resolveLightboxImageIndex() + delta + this.lightboxImages.length) % this.lightboxImages.length;
+  }
 
   private handleImageLightboxDialogClick = (event: Event): void => {
     event.stopPropagation();
@@ -1357,6 +1538,25 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
     }
   };
 
+  private handleToggleProcessingState = async (): Promise<void> => {
+    if (!this.job) {
+      return;
+    }
+
+    const resuming = this.job.status === "paused";
+    this.updatingProcessingState = true;
+    try {
+      this.job = resuming
+        ? await resumeJobService.fetch({ jobId: this.params.jobId })
+        : await pauseJobService.fetch({ jobId: this.params.jobId });
+      dispatch(this, SuccessEvent(resuming ? "Job resumed." : "Job paused."));
+    } catch (error) {
+      dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to update job processing state."));
+    } finally {
+      this.updatingProcessingState = false;
+    }
+  };
+
   private handleForceRestartStage = async (stageName: JobStageName): Promise<void> => {
     this.restartingStageName = stageName;
     try {
@@ -1393,6 +1593,66 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
 
   private resolveApprovedImages(): JobDetail["image"]["generatedAssets"] {
     return this.job?.image.generatedAssets.filter((asset) => asset.approvedAt && !asset.rejectedAt) ?? [];
+  }
+
+  private resolveImageGroups(images: JobImageAssetEntry[] = this.job?.image.generatedAssets ?? []): JobImageGroup[] {
+    if (!this.job) {
+      return [];
+    }
+
+    return this.job.image.prompts.map((prompt) => ({
+      prompt,
+      images: images
+        .filter((asset) => asset.promptId === prompt.id)
+        .sort((left, right) => left.createdAt.localeCompare(right.createdAt)),
+    }));
+  }
+
+  private resolveImageGroupLabel(index: number): string {
+    return IMAGE_GROUP_LABELS[index] ?? `Section ${index + 1}`;
+  }
+
+  private renderImageCarousel(
+    groupLabel: string,
+    images: JobImageAssetEntry[],
+    buttonClass: string,
+    imageClass: string,
+  ): TemplateResult {
+    if (images.length === 0) {
+      return html`
+        <div>No images available for this section yet.</div>
+      `;
+    }
+
+    const lightboxImages = images.map((entry, index) => ({
+      src: `/api/jobs/${this.params.jobId}/images/${entry.id}`,
+      alt: `${groupLabel} image ${index + 1}: ${entry.prompt}`,
+    }));
+
+    return html`
+      <div class="image-carousel">
+        <div class="image-carousel-frame">
+          ${lightboxImages.map(
+            (image, index) => html`
+              <button
+                class=${buttonClass}
+                @click=${() => this.handleOpenImageLightbox(lightboxImages, index)}
+                aria-label=${`Open ${groupLabel.toLowerCase()} image ${index + 1} in full page viewer`}>
+                <img class=${imageClass} src=${image.src} alt=${image.alt} />
+              </button>
+            `,
+          )}
+        </div>
+      </div>
+    `;
+  }
+
+  private resolveLightboxImageIndex(): number {
+    if (this.lightboxImages.length === 0) {
+      return 0;
+    }
+
+    return Math.min(this.lightboxImageIndex, this.lightboxImages.length - 1);
   }
 
   private resolveArtifactText(key: ArtifactKey): string {

@@ -4,6 +4,7 @@ import { parseRouteParams } from "../shared/util.route-params.js";
 import { getJobService } from "../shared/service.get-job.js";
 import { streamJobService } from "../shared/service.stream-job.js";
 import { JobDetail, JobLogEntry } from "../shared/type.job.js";
+import { formatDisplayText, getJobStageLabel, humanizeEnumValue } from "../shared/util.display.js";
 import { globalStyles } from "./styles.global.js";
 import { RpgChroniclerAppProvider } from "./provider.app.js";
 import { leftArrowIcon } from "./icons.js";
@@ -131,11 +132,11 @@ export class RpgChroniclerJobLogsPage extends RpgChroniclerAppProvider {
     return html`
       <article class="log-item">
         <div class="log-top">
-          <span class=${`level ${entry.level}`}>${entry.level}</span>
+          <span class=${`level ${entry.level}`}>${humanizeEnumValue(entry.level)}</span>
           <small>${new Date(entry.createdAt).toLocaleString()}</small>
         </div>
-        <div><strong>${entry.stage ?? "general"}</strong></div>
-        <div>${entry.message}</div>
+        <div><strong>${entry.stage ? getJobStageLabel(entry.stage) : "General"}</strong></div>
+        <div>${formatDisplayText(entry.message)}</div>
       </article>
     `;
   }

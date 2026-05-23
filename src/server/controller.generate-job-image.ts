@@ -7,6 +7,8 @@ import { readJobDetail, saveGeneratedImageAsset, updateJob, updateStage } from "
 import { generateImageFromPrompt } from "./util.image.js";
 import { RouteError } from "./main.errors.js";
 
+const IMAGE_CANDIDATES_PER_PROMPT = 3;
+
 export class GenerateJobImageController extends AbstractController<NoBodyParams, JobPathParameters, JobDetail> {
   async handler({ pathParams }: RequestOptions<NoBodyParams, JobPathParameters>): Promise<JobDetail> {
     const current = await readJobDetail(pathParams.jobId);
@@ -22,20 +24,26 @@ export class GenerateJobImageController extends AbstractController<NoBodyParams,
       },
     }));
 
-    for (let index = 0; index < current.image.prompts.length; index += 1) {
-      const prompt = current.image.prompts[index];
-      const { buffer, mimeType } = await generateImageFromPrompt(prompt.prompt, {
-        jobId: pathParams.jobId,
-        stageName: "image_generation",
-      });
-      await saveGeneratedImageAsset(pathParams.jobId, prompt.id, prompt.prompt, buffer, mimeType, "generated");
-      await updateStage(
-        pathParams.jobId,
-        "image_generation",
-        "running",
-        Math.round(((index + 1) / current.image.prompts.length) * 100),
-        `Generated image ${index + 1} of ${current.image.prompts.length} for ${prompt.storyPart}.`,
-      );
+    const totalImages = current.image.prompts.length * IMAGE_CANDIDATES_PER_PROMPT;
+    let generatedCount = 0;
+
+    for (let promptIndex = 0; promptIndex < current.image.prompts.length; promptIndex += 1) {
+      const prompt = current.image.prompts[promptIndex];
+      for (let candidateIndex = 0; candidateIndex < IMAGE_CANDIDATES_PER_PROMPT; candidateIndex += 1) {
+        const { buffer, mimeType } = await generateImageFromPrompt(prompt.prompt, {
+          jobId: pathParams.jobId,
+          stageName: "image_generation",
+        });
+        await saveGeneratedImageAsset(pathParams.jobId, prompt.id, prompt.prompt, buffer, mimeType, "generated");
+        generatedCount += 1;
+        await updateStage(
+          pathParams.jobId,
+          "image_generation",
+          "running",
+          Math.round((generatedCount / totalImages) * 100),
+          `Generated image ${candidateIndex + 1} of ${IMAGE_CANDIDATES_PER_PROMPT} for ${prompt.storyPart}.`,
+        );
+      }
     }
 
     await updateJob(pathParams.jobId, (job) => ({
@@ -51,7 +59,7 @@ export class GenerateJobImageController extends AbstractController<NoBodyParams,
       "image_approval",
       "running",
       0,
-      `Review ${current.image.prompts.length} generated images and approve or reject each.`,
+      `Review ${totalImages} generated images and approve or reject each.`,
     );
     return readJobDetail(pathParams.jobId);
   }

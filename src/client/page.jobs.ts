@@ -2,9 +2,12 @@ import { css, html, TemplateResult } from "lit";
 import { customElement, state } from "lit/decorators.js";
 import { archiveJobService } from "../shared/service.archive-job.js";
 import { listJobsService } from "../shared/service.list-jobs.js";
+import { pauseJobService } from "../shared/service.pause-job.js";
 import { restoreJobService } from "../shared/service.restore-job.js";
+import { resumeJobService } from "../shared/service.resume-job.js";
 import { streamJobsService } from "../shared/service.stream-jobs.js";
 import { JobIndex, JobListResponse } from "../shared/type.job.js";
+import { getJobStageLabel, humanizeEnumValue } from "../shared/util.display.js";
 import { globalStyles } from "./styles.global.js";
 import { RpgChroniclerAppProvider } from "./provider.app.js";
 import { kebabIcon, leftArrowIcon } from "./icons.js";
@@ -138,6 +141,11 @@ export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
       .status-pill.completed {
         background: color-mix(in srgb, var(--color-success) 22%, transparent);
         color: var(--color-success);
+      }
+
+      .status-pill.paused {
+        background: color-mix(in srgb, var(--color-2) 20%, transparent);
+        color: var(--color-2);
       }
 
       .status-pill.failed {
@@ -276,16 +284,27 @@ export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
 
   private renderJob(job: JobIndex): TemplateResult {
     const isUpdating = this.updatingJobId === job.id;
+    const canPauseJob = job.status === "running";
+    const canResumeJob = job.status === "paused";
     return html`
       <article class="job-card">
         <div class="job-card-top">
           <div class="stage-row">
             <strong>${job.file}</strong>
-            <span class=${`status-pill ${job.status}`}>${job.status}</span>
+            <span class=${`status-pill ${job.status}`}>${humanizeEnumValue(job.status)}</span>
           </div>
           <details class="menu" @click=${this.handleMenuClick}>
             <summary aria-label="Job actions">${kebabIcon}</summary>
             <div class="menu-items">
+              ${canPauseJob || canResumeJob
+                ? html`
+                    <button
+                      ?disabled=${isUpdating}
+                      @click=${(event: Event) => this.handleToggleProcessingState(event, job)}>
+                      ${isUpdating ? (canResumeJob ? "Resuming..." : "Pausing...") : canResumeJob ? "Resume" : "Pause"}
+                    </button>
+                  `
+                : html``}
               <button ?disabled=${isUpdating} @click=${(event: Event) => this.handleToggleArchive(event, job)}>
                 ${isUpdating
                   ? job.archivedAt
@@ -302,7 +321,7 @@ export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
           <div>
             <div class="status-row">
               <span>Current stage</span>
-              <span>${job.currentStage ?? "complete"}</span>
+              <span>${getJobStageLabel(job.currentStage)}</span>
             </div>
             ${job.archivedAt
               ? html`
@@ -372,6 +391,27 @@ export class RpgChroniclerJobsPage extends RpgChroniclerAppProvider {
       await this.refreshJobs();
     } catch (error) {
       dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to update archive state."));
+    } finally {
+      this.updatingJobId = null;
+    }
+  }
+
+  private async handleToggleProcessingState(event: Event, job: JobIndex): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+    this.updatingJobId = job.id;
+
+    try {
+      if (job.status === "paused") {
+        await resumeJobService.fetch({ jobId: job.id });
+        dispatch(this, SuccessEvent("Job resumed."));
+      } else {
+        await pauseJobService.fetch({ jobId: job.id });
+        dispatch(this, SuccessEvent("Job paused."));
+      }
+      await this.refreshJobs();
+    } catch (error) {
+      dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to update job processing state."));
     } finally {
       this.updatingJobId = null;
     }

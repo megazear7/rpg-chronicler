@@ -347,7 +347,10 @@ function assetLink(assetId: string): Record<string, unknown> {
   };
 }
 
-function textToRichTextWithEmbeddedImages(text: string, embeddedAssetIds: string[] = []): Record<string, unknown> {
+function textToRichTextWithEmbeddedImages(
+  text: string,
+  embeddedImages: Array<{ afterParagraph: number; assetIds: string[] }> = [],
+): Record<string, unknown> {
   const paragraphs = text
     .split("\n")
     .map((line) => line.trim())
@@ -365,7 +368,7 @@ function textToRichTextWithEmbeddedImages(text: string, embeddedAssetIds: string
       ],
     }));
 
-  if (embeddedAssetIds.length === 0) {
+  if (embeddedImages.length === 0) {
     return {
       nodeType: "document",
       data: {},
@@ -373,19 +376,42 @@ function textToRichTextWithEmbeddedImages(text: string, embeddedAssetIds: string
     };
   }
 
-  const content = [...paragraphs];
-  const insertIndex = Math.min(2, content.length);
-  content.splice(
-    insertIndex,
-    0,
-    ...embeddedAssetIds.map((embeddedAssetId) => ({
-      nodeType: "embedded-asset-block",
-      data: {
-        target: assetLink(embeddedAssetId),
-      },
-      content: [],
-    })),
-  );
+  const imagesByParagraph = new Map<number, string[]>();
+  for (const group of embeddedImages) {
+    if (group.assetIds.length > 0) {
+      imagesByParagraph.set(group.afterParagraph, group.assetIds);
+    }
+  }
+
+  const content: Array<Record<string, unknown>> = [];
+  paragraphs.forEach((paragraph, index) => {
+    const paragraphNumber = index + 1;
+    content.push(paragraph);
+    const assetIds = imagesByParagraph.get(paragraphNumber) ?? [];
+    content.push(
+      ...assetIds.map((embeddedAssetId) => ({
+        nodeType: "embedded-asset-block",
+        data: {
+          target: assetLink(embeddedAssetId),
+        },
+        content: [],
+      })),
+    );
+    imagesByParagraph.delete(paragraphNumber);
+  });
+
+  for (const assetIds of imagesByParagraph.values()) {
+    content.push(
+      ...assetIds.map((embeddedAssetId) => ({
+        nodeType: "embedded-asset-block",
+        data: {
+          target: assetLink(embeddedAssetId),
+        },
+        content: [],
+      })),
+    );
+  }
+
   return {
     nodeType: "document",
     data: {},
@@ -601,7 +627,7 @@ export async function createContentfulEvent(input: {
   year?: number | null;
   month?: string | null;
   day?: number | null;
-  images?: Array<{ imagePath: string; imageMimeType: string }>;
+  images?: Array<{ insertAfterParagraph: number; images: Array<{ imagePath: string; imageMimeType: string }> }>;
 }): Promise<{ entryId: string; entryUrl: string; assetIds: string[]; assetUrls: string[] }> {
   const environment = await getContentfulEnvironment();
   const eventDate = await deriveEventDate(environment, input.adventureId, {
@@ -609,20 +635,35 @@ export async function createContentfulEvent(input: {
     month: input.month,
     day: input.day,
   });
-  const uploadedAssets = await Promise.all(
-    (input.images ?? []).map(({ imagePath, imageMimeType }) =>
-      uploadContentfulImage(environment, input.title, imagePath, imageMimeType),
-    ),
+  const uploadedImageGroups = await Promise.all(
+    (input.images ?? []).map(async (group) => ({
+      insertAfterParagraph: group.insertAfterParagraph,
+      assets: await Promise.all(
+        group.images.map(({ imagePath, imageMimeType }) =>
+          uploadContentfulImage(environment, input.title, imagePath, imageMimeType),
+        ),
+      ),
+    })),
   );
-  const assetIds = uploadedAssets.map((asset) => asset.assetId);
-  const assetUrls = uploadedAssets.map((asset) => asset.assetUrl).filter((value): value is string => Boolean(value));
+  const assetIds = uploadedImageGroups.flatMap((group) => group.assets.map((asset) => asset.assetId));
+  const assetUrls = uploadedImageGroups
+    .flatMap((group) => group.assets.map((asset) => asset.assetUrl))
+    .filter((value): value is string => Boolean(value));
 
   const entry = await environment.createEntry("event", {
     fields: {
       title: { [LOCALE]: input.title },
       songUrl: { [LOCALE]: input.songUrl ?? "" },
       summary: { [LOCALE]: textToRichText(input.summary) },
-      description: { [LOCALE]: textToRichTextWithEmbeddedImages(input.description, assetIds) },
+      description: {
+        [LOCALE]: textToRichTextWithEmbeddedImages(
+          input.description,
+          uploadedImageGroups.map((group) => ({
+            afterParagraph: group.insertAfterParagraph,
+            assetIds: group.assets.map((asset) => asset.assetId),
+          })),
+        ),
+      },
       dmNotes: { [LOCALE]: textToRichText(input.dmNotes) },
       year: eventDate.year ? { [LOCALE]: eventDate.year } : undefined,
       month: eventDate.month ? { [LOCALE]: eventDate.month } : undefined,

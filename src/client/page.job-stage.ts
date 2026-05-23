@@ -4,6 +4,7 @@ import { parseRouteParams } from "../shared/util.route-params.js";
 import { getJobService } from "../shared/service.get-job.js";
 import { streamJobService } from "../shared/service.stream-job.js";
 import { regenerateBulletPointOutputService } from "../shared/service.regenerate-bullet-point-output.js";
+import { rerunJobStageService } from "../shared/service.rerun-job-stage.js";
 import {
   ArtifactDetail,
   JobArtifactOutput,
@@ -15,7 +16,9 @@ import {
   JobLogEntry,
   JobStage,
   JobStageName,
+  rerunnableJobStageNames,
 } from "../shared/type.job.js";
+import { formatDisplayText, humanizeEnumValue } from "../shared/util.display.js";
 import { UsageBreakdown, UsageSummary } from "../shared/type.prompt.js";
 import { globalStyles } from "./styles.global.js";
 import { RpgChroniclerAppProvider } from "./provider.app.js";
@@ -45,6 +48,7 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
   @state() private job: JobDetail | null = null;
   @state() private editors: Record<string, string> = {};
   @state() private regeneratingOutputs: Record<string, boolean> = {};
+  @state() private rerunningStage = false;
   @state() private copyState: "idle" | "copied" | "error" = "idle";
   private eventSource: EventSource | null = null;
 
@@ -177,6 +181,11 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
       .status-pill.completed {
         background: color-mix(in srgb, var(--color-success) 22%, transparent);
         color: var(--color-success);
+      }
+
+      .status-pill.paused {
+        background: color-mix(in srgb, var(--color-2) 20%, transparent);
+        color: var(--color-2);
       }
 
       .status-pill.failed {
@@ -329,6 +338,9 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
     const previousStage = stageIndex > 0 ? this.job.stages[stageIndex - 1] : null;
     const nextStage =
       stageIndex >= 0 && stageIndex < this.job.stages.length - 1 ? this.job.stages[stageIndex + 1] : null;
+    const canRerunStage = stage !== null && stage.kind === "ai" && rerunnableJobStageNames.includes(stageName);
+    const rerunLabel =
+      this.job.status === "running" || this.job.status === "paused" ? "Force rerun stage" : "Rerun stage";
 
     return html`
       <main>
@@ -341,6 +353,15 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
                     <a class="link-chip" href=${this.renderStagePath(previousStage.name)}>
                       ${leftArrowIcon} ${previousStage.label}
                     </a>
+                  `
+                : html``}
+              ${canRerunStage
+                ? html`
+                    <button
+                      ?disabled=${this.rerunningStage}
+                      @click=${() => this.handleRerunStage(stageName, stage?.label ?? "Stage")}>
+                      ${refreshIcon} ${this.rerunningStage ? "Rerunning..." : rerunLabel}
+                    </button>
                   `
                 : html``}
               <a class="link-chip" href=${`/jobs/${this.params.jobId}/logs`}>Logs ${detailsIcon}</a>
@@ -357,7 +378,9 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
           <div class="hero-grid">
             <div class="metric">
               <span>Status</span>
-              <strong class=${`status-pill ${stage?.status ?? "pending"}`}>${stage?.status ?? "pending"}</strong>
+              <strong class=${`status-pill ${stage?.status ?? "pending"}`}>
+                ${humanizeEnumValue(stage?.status ?? "pending")}
+              </strong>
             </div>
             <div class="metric">
               <span>Progress</span>
@@ -374,7 +397,7 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
           </div>
           ${stage?.message
             ? html`
-                <p class="stage-message">${stage.message}</p>
+                <p class="stage-message">${formatDisplayText(stage.message)}</p>
               `
             : html``}
         </section>
@@ -428,7 +451,7 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
               <span class="pill">Characters ${chars}</span>
               ${activeVersion
                 ? html`
-                    <span class="pill">Active ${activeVersion.source}</span>
+                    <span class="pill">Active ${humanizeEnumValue(activeVersion.source)}</span>
                   `
                 : html``}
               ${artifact.generatedVersionId && artifact.generatedVersionId === activeVersion?.id
@@ -468,12 +491,12 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
         <p>This stage tracks workflow status and logs but does not own a text artifact version history.</p>
         ${stage?.message
           ? html`
-              <div class="pill">Latest note: ${stage.message}</div>
+              <div class="pill">Latest note: ${formatDisplayText(stage.message)}</div>
             `
           : html``}
         ${logs.length > 0
           ? html`
-              <div class="pill">Recent log: ${logs[logs.length - 1]?.message}</div>
+              <div class="pill">Recent log: ${formatDisplayText(logs[logs.length - 1]?.message ?? "")}</div>
             `
           : html``}
       </section>
@@ -496,7 +519,7 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
         </p>
         ${stage?.message
           ? html`
-              <div class="pill">Latest note: ${stage.message}</div>
+              <div class="pill">Latest note: ${formatDisplayText(stage.message)}</div>
             `
           : html``}
         ${splitFiles.length === 0
@@ -506,7 +529,7 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
           : html``}
         ${logs.length > 0
           ? html`
-              <div class="pill">Recent log: ${logs[logs.length - 1]?.message}</div>
+              <div class="pill">Recent log: ${formatDisplayText(logs[logs.length - 1]?.message ?? "")}</div>
             `
           : html``}
         <div class="audio-file-list">
@@ -527,7 +550,7 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
         <div class="section-title">
           <strong>${audioFile.label}</strong>
           <div class="audio-meta">
-            <span class="pill">${audioFile.kind}</span>
+            <span class="pill">${humanizeEnumValue(audioFile.kind)}</span>
             <span class="pill">${this.formatAudioDuration(audioFile.durationSeconds)}</span>
             <span class="pill">${audioFile.fileName}</span>
           </div>
@@ -606,7 +629,7 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
       <article class="version-item">
         <div class="version-header">
           <div class="editor-meta">
-            <span class="pill">${version.source}</span>
+            <span class="pill">${humanizeEnumValue(version.source)}</span>
             ${isGenerated
               ? html`
                   <span class="pill">Generated</span>
@@ -653,10 +676,10 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
     return html`
       <article class="log-item">
         <div class="log-top">
-          <span class=${`level ${entry.level}`}>${entry.level}</span>
+          <span class=${`level ${entry.level}`}>${humanizeEnumValue(entry.level)}</span>
           <small>${new Date(entry.createdAt).toLocaleString()}</small>
         </div>
-        <div class="log-message">${entry.message}</div>
+        <div class="log-message">${formatDisplayText(entry.message)}</div>
       </article>
     `;
   }
@@ -789,6 +812,23 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
         ...this.regeneratingOutputs,
         [output.id]: false,
       };
+    }
+  }
+
+  private async handleRerunStage(stageName: JobStageName, stageLabel: string): Promise<void> {
+    this.rerunningStage = true;
+    const forceRerun = this.job?.status === "running" || this.job?.status === "paused";
+
+    try {
+      this.job = await rerunJobStageService.fetch({
+        jobId: this.params.jobId,
+        stageName,
+      });
+      dispatch(this, SuccessEvent(`${stageLabel} ${forceRerun ? "force rerun" : "rerun"} started.`));
+    } catch (error) {
+      dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to rerun this stage."));
+    } finally {
+      this.rerunningStage = false;
     }
   }
 

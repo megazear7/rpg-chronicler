@@ -7,7 +7,17 @@ import { getAppConfig } from "./util.app.js";
 import { getTextCompletion } from "./util.submit-prompt.js";
 import { loadAudioClient } from "./util.model.js";
 import { DEFAULT_INSTRUCTION_CONFIG, InstructionConfig } from "../shared/type.instructions.js";
-import { ArtifactKey, JobDetail, JobImagePrompt, JobIndex, JobStageName, JobStageStatus } from "../shared/type.job.js";
+import {
+  ArtifactKey,
+  artifactLabels,
+  JobDetail,
+  JobImagePrompt,
+  JobIndex,
+  JobStageName,
+  JobStageStatus,
+  jobStageLabels,
+  rerunnableJobStageNames,
+} from "../shared/type.job.js";
 import { ContentfulSubmissionSnapshot } from "../shared/type.contentful-context.js";
 import { PromptLog } from "../shared/type.prompt-log.js";
 import {
@@ -18,11 +28,13 @@ import {
   getJobProgressDir,
   getJobSourceDir,
   listArtifactOutputs,
+  pauseJob,
   readArtifact,
   readArtifactOutput,
   readJobDetail,
   readJob,
   resetJobForRestart,
+  resumeJob,
   saveGeneratedImageAsset,
   saveArtifactOutput,
   saveArtifactVersion,
@@ -40,6 +52,7 @@ const WORDS_PER_MINUTE_OF_AUDIO = 4;
 const MINIMUM_WORDS = 300;
 const MAXIMUM_WORDS = 2000;
 const MAX_DIRECT_AUDIO_SECONDS = 45 * 60;
+const IMAGE_CANDIDATES_PER_PROMPT = 3;
 const PROMPT_DEBUG_DIR = "data/prompt";
 
 const DEFAULT_INSTRUCTIONS = buildInstructionText(InstructionConfig.parse(DEFAULT_INSTRUCTION_CONFIG));
@@ -66,22 +79,34 @@ const SONG_MODIFIERS = [
 
 const ACCEPTED_AUDIO_TYPES = new Set(["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/mp4a-latm"]);
 const ACCEPTED_AUDIO_EXTENSIONS = new Set([".mp3", ".m4a"]);
-const RESTARTABLE_STAGE_ORDER: JobStageName[] = [
-  "prepare_audio",
-  "bullet_points",
-  "play_by_play",
-  "dm_notes",
-  "summary",
-  "story",
-  "title",
-  "image_prompt",
-  "image_generation",
-  "lyrics",
-  "song_prompt",
-];
+const activeProcessingRuns = new Set<string>();
+
+class JobPausedError extends Error {
+  constructor(jobId: string) {
+    super(`Job ${jobId} is paused.`);
+    this.name = "JobPausedError";
+  }
+}
+
+class JobSupersededError extends Error {
+  constructor(jobId: string) {
+    super(`Job ${jobId} is running under a newer processing token.`);
+    this.name = "JobSupersededError";
+  }
+}
 
 export async function startJobProcessing(jobId: string, sourcePath: string): Promise<void> {
-  queueJobProcessing(jobId, sourcePath);
+  const job = await readJob(jobId);
+  queueJobProcessing(jobId, sourcePath, job.processingRunId);
+}
+
+export async function pauseActiveJobProcessing(jobId: string): Promise<void> {
+  await pauseJob(jobId);
+}
+
+export async function resumePausedJobProcessing(jobId: string): Promise<void> {
+  const job = await resumeJob(jobId);
+  queueJobProcessing(jobId, await resolveOriginalSourcePath(jobId), job.processingRunId);
 }
 
 export async function restartFailedJobProcessing(jobId: string): Promise<void> {
@@ -91,25 +116,72 @@ export async function restartFailedJobProcessing(jobId: string): Promise<void> {
     throw new Error("This job cannot be restarted from its current failed stage.");
   }
 
-  await resetJobForRestart(jobId, failedStage);
-  await appendJobLog(jobId, "info", failedStage, `Restarting processing from ${failedStage}.`);
-  queueJobProcessing(jobId, await resolveOriginalSourcePath(jobId));
+  const resetJob = await resetJobForRestart(jobId, failedStage);
+  await appendJobLog(jobId, "info", failedStage, `Restarting processing from ${jobStageLabels[failedStage]}.`);
+  queueJobProcessing(jobId, await resolveOriginalSourcePath(jobId), resetJob.processingRunId);
 }
 
-function queueJobProcessing(jobId: string, sourcePath: string): void {
-  void runJobProcessing(jobId, sourcePath).catch(async (error: unknown) => {
-    const message = error instanceof Error ? error.message : String(error);
-    const job = await readJob(jobId);
-    const stage = job.currentStage ?? "prepare_audio";
-    await failJob(jobId, stage, message);
-  });
+export async function rerunJobStageProcessing(jobId: string, stageName: JobStageName): Promise<void> {
+  if (!rerunnableJobStageNames.includes(stageName)) {
+    throw new Error("This stage cannot be rerun.");
+  }
+
+  const job = await readJob(jobId);
+  const resetJob = await resetJobForRestart(jobId, stageName, { resetFutureStages: false });
+  await appendJobLog(
+    jobId,
+    "info",
+    stageName,
+    `${job.status === "running" || job.status === "paused" ? "Force rerunning" : "Rerunning"} processing from ${jobStageLabels[stageName]}.`,
+  );
+  queueJobProcessing(jobId, await resolveOriginalSourcePath(jobId), resetJob.processingRunId);
 }
 
-async function runJobProcessing(jobId: string, sourcePath: string): Promise<void> {
+function processingRunKey(jobId: string, processingRunId: string): string {
+  return `${jobId}:${processingRunId}`;
+}
+
+function queueJobProcessing(jobId: string, sourcePath: string, processingRunId: string): void {
+  const runKey = processingRunKey(jobId, processingRunId);
+  if (activeProcessingRuns.has(runKey)) {
+    return;
+  }
+
+  activeProcessingRuns.add(runKey);
+  void runJobProcessing(jobId, sourcePath, processingRunId)
+    .catch(async (error: unknown) => {
+      if (error instanceof JobPausedError || error instanceof JobSupersededError) {
+        return;
+      }
+
+      const job = await readJob(jobId);
+      if (job.processingRunId !== processingRunId) {
+        return;
+      }
+
+      const message = error instanceof Error ? error.message : String(error);
+      const stage = job.currentStage ?? "prepare_audio";
+      await failJob(jobId, stage, message);
+    })
+    .finally(() => {
+      activeProcessingRuns.delete(runKey);
+    });
+}
+
+async function runJobProcessing(jobId: string, sourcePath: string, processingRunId: string): Promise<void> {
+  await assertJobCanContinue(jobId, processingRunId);
   const currentJob = await readJob(jobId);
-  await appendJobLog(jobId, "info", "prepare_audio", "Starting background processing.");
-  const { processedFilePath } = await ensurePreparedAudio(jobId, sourcePath, currentJob);
+  await appendJobLog(
+    jobId,
+    "info",
+    "prepare_audio",
+    currentJob.stages.some((stage) => stage.progress > 0 || stage.status === JobStageStatus.enum.completed)
+      ? "Resuming background processing."
+      : "Starting background processing.",
+  );
+  const { processedFilePath } = await ensurePreparedAudio(jobId, sourcePath, currentJob, processingRunId);
 
+  await assertJobCanContinue(jobId, processingRunId);
   const baseLength = await determineBaseLength(processedFilePath);
   await appendJobLog(jobId, "info", "prepare_audio", `Estimated ${baseLength} words for downstream generation.`);
   const instructions = await resolveJobInstructions(jobId);
@@ -117,8 +189,15 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
   const songExample = DEFAULT_SONG_EXAMPLE;
   const songMod = SONG_MODIFIERS[Math.floor(Math.random() * SONG_MODIFIERS.length)];
 
-  const bulletPoints = await resolveBulletPoints(jobId, currentJob, processedFilePath, bulletPointInstructions);
+  const bulletPoints = await resolveBulletPoints(
+    jobId,
+    currentJob,
+    processedFilePath,
+    bulletPointInstructions,
+    processingRunId,
+  );
 
+  await assertJobCanContinue(jobId, processingRunId);
   await generateTextArtifact(
     currentJob,
     jobId,
@@ -126,7 +205,9 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     "playByPlay",
     buildPlayByPlayPrompt(bulletPoints, Math.ceil(baseLength * 0.8)),
     instructions,
+    processingRunId,
   );
+  await assertJobCanContinue(jobId, processingRunId);
   await generateTextArtifact(
     currentJob,
     jobId,
@@ -134,7 +215,9 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     "dmNotes",
     buildDmNotesPrompt(bulletPoints, Math.ceil(baseLength * 0.6)),
     instructions,
+    processingRunId,
   );
+  await assertJobCanContinue(jobId, processingRunId);
   await generateTextArtifact(
     currentJob,
     jobId,
@@ -142,7 +225,9 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     "summary",
     buildSummaryPrompt(bulletPoints, Math.ceil(baseLength * 0.4)),
     instructions,
+    processingRunId,
   );
+  await assertJobCanContinue(jobId, processingRunId);
   const story = await generateTextArtifact(
     currentJob,
     jobId,
@@ -150,10 +235,23 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     "story",
     buildStoryPrompt(bulletPoints, Math.ceil(baseLength * 1.75)),
     instructions,
+    processingRunId,
   );
-  await generateTextArtifact(currentJob, jobId, "title", "title", buildTitlePrompt(story), NO_INSTRUCTIONS);
-  const imagePrompts = await resolveImagePrompts(jobId, currentJob, story);
-  await generateImageCandidates(jobId, currentJob, imagePrompts);
+  await assertJobCanContinue(jobId, processingRunId);
+  await generateTextArtifact(
+    currentJob,
+    jobId,
+    "title",
+    "title",
+    buildTitlePrompt(story),
+    NO_INSTRUCTIONS,
+    processingRunId,
+  );
+  await assertJobCanContinue(jobId, processingRunId);
+  const imagePrompts = await resolveImagePrompts(jobId, currentJob, story, processingRunId);
+  await assertJobCanContinue(jobId, processingRunId);
+  await generateImageCandidates(jobId, currentJob, imagePrompts, processingRunId);
+  await assertJobCanContinue(jobId, processingRunId);
   const lyrics = await generateTextArtifact(
     currentJob,
     jobId,
@@ -161,7 +259,9 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     "lyrics",
     buildLyricsPrompt(story, Math.floor(Math.random() * 3) + 2),
     NO_INSTRUCTIONS,
+    processingRunId,
   );
+  await assertJobCanContinue(jobId, processingRunId);
   await generateTextArtifact(
     currentJob,
     jobId,
@@ -169,7 +269,9 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
     "songPrompt",
     buildSongPrompt(lyrics, songExample, songMod),
     NO_INSTRUCTIONS,
+    processingRunId,
   );
+  await assertJobCanContinue(jobId, processingRunId);
   await updateJob(jobId, (job) => ({
     ...job,
     song: {
@@ -198,9 +300,19 @@ async function runJobProcessing(jobId: string, sourcePath: string): Promise<void
   }));
 }
 
+async function assertJobCanContinue(jobId: string, processingRunId: string): Promise<void> {
+  const job = await readJob(jobId);
+  if (job.processingRunId !== processingRunId) {
+    throw new JobSupersededError(jobId);
+  }
+  if (job.pausedAt) {
+    throw new JobPausedError(jobId);
+  }
+}
+
 function getRestartableFailedStage(job: JobIndex): JobStageName | null {
   const failedStage = job.stages.find((stage) => stage.status === JobStageStatus.enum.failed)?.name ?? null;
-  return failedStage && RESTARTABLE_STAGE_ORDER.includes(failedStage) ? failedStage : null;
+  return failedStage && rerunnableJobStageNames.includes(failedStage) ? failedStage : null;
 }
 
 function hasCompletedStage(job: JobIndex, stageName: JobStageName): boolean {
@@ -220,7 +332,9 @@ async function ensurePreparedAudio(
   jobId: string,
   sourcePath: string,
   job: JobIndex,
+  processingRunId: string,
 ): Promise<{ processedFilePath: string; processedFileName: string }> {
+  await assertJobCanContinue(jobId, processingRunId);
   const processedFileName = "processed.mp3";
   const processedFilePath = path.join(getJobSourceDir(jobId), processedFileName);
 
@@ -235,7 +349,8 @@ async function ensurePreparedAudio(
   }
 
   await updateStage(jobId, "prepare_audio", "running", 5, "Validating and preparing audio.");
-  const prepared = await prepareAudioFile(jobId, sourcePath);
+  const prepared = await prepareAudioFile(jobId, sourcePath, processingRunId);
+  await assertJobCanContinue(jobId, processingRunId);
   await updateStage(jobId, "prepare_audio", "completed", 100, `Prepared ${prepared.processedFileName}.`);
   return prepared;
 }
@@ -254,7 +369,9 @@ async function resolveBulletPoints(
   job: JobIndex,
   processedFilePath: string,
   instructions: string,
+  processingRunId: string,
 ): Promise<string> {
+  await assertJobCanContinue(jobId, processingRunId);
   if (hasCompletedStage(job, "bullet_points")) {
     try {
       await appendJobLog(jobId, "info", "bullet_points", "Reusing previously generated bullet points.");
@@ -265,7 +382,8 @@ async function resolveBulletPoints(
   }
 
   await updateStage(jobId, "bullet_points", "running", 5, "Listening to audio.");
-  const bulletPoints = await createBulletPoints(jobId, processedFilePath, instructions);
+  const bulletPoints = await createBulletPoints(jobId, processedFilePath, instructions, processingRunId);
+  await assertJobCanContinue(jobId, processingRunId);
   await saveArtifactVersion(jobId, "bulletPoints", bulletPoints, "generated");
   await updateStage(jobId, "bullet_points", "completed", 100, "Bullet points generated.");
   return bulletPoints;
@@ -341,7 +459,13 @@ function buildBulletPointContextText(snapshot: ContentfulSubmissionSnapshot | nu
   return sections.join("\n\n").trim();
 }
 
-async function resolveImagePrompts(jobId: string, job: JobIndex, story: string): Promise<JobImagePrompt[]> {
+async function resolveImagePrompts(
+  jobId: string,
+  job: JobIndex,
+  story: string,
+  processingRunId: string,
+): Promise<JobImagePrompt[]> {
+  await assertJobCanContinue(jobId, processingRunId);
   if (hasCompletedStage(job, "image_prompt") && job.image.prompts.length > 0) {
     await appendJobLog(jobId, "info", "image_prompt", "Reusing previously generated image prompts.");
     return job.image.prompts;
@@ -367,7 +491,14 @@ async function resolveImagePrompts(jobId: string, job: JobIndex, story: string):
   }
 
   await updateStage(jobId, "image_prompt", "running", 10, "Generating three image prompts for key story beats.");
-  const content = await sendTextMessage(NO_INSTRUCTIONS, buildImagePromptSetPrompt(story), jobId, "image_prompt");
+  const content = await sendTextMessage(
+    NO_INSTRUCTIONS,
+    buildImagePromptSetPrompt(story),
+    jobId,
+    "image_prompt",
+    processingRunId,
+  );
+  await assertJobCanContinue(jobId, processingRunId);
   const prompts = parseImagePrompts(content);
   await saveArtifactVersion(jobId, "imagePrompt", formatImagePromptArtifact(prompts), "generated");
   await updateJob(jobId, (current) => ({
@@ -382,10 +513,19 @@ async function resolveImagePrompts(jobId: string, job: JobIndex, story: string):
   return prompts;
 }
 
-async function generateImageCandidates(jobId: string, job: JobIndex, prompts: JobImagePrompt[]): Promise<void> {
+async function generateImageCandidates(
+  jobId: string,
+  job: JobIndex,
+  prompts: JobImagePrompt[],
+  processingRunId: string,
+): Promise<void> {
+  await assertJobCanContinue(jobId, processingRunId);
   if (
     hasCompletedStage(job, "image_generation") &&
-    prompts.every((prompt) => job.image.generatedAssets.some((asset) => asset.promptId === prompt.id))
+    prompts.every(
+      (prompt) =>
+        job.image.generatedAssets.filter((asset) => asset.promptId === prompt.id).length >= IMAGE_CANDIDATES_PER_PROMPT,
+    )
   ) {
     await appendJobLog(jobId, "info", "image_generation", "Reusing previously generated image candidates.");
     return;
@@ -399,29 +539,36 @@ async function generateImageCandidates(jobId: string, job: JobIndex, prompts: Jo
       prompts,
     },
   }));
-  await updateStage(jobId, "image_generation", "running", 5, `Generating ${prompts.length} image candidates.`);
+  const totalImages = prompts.length * IMAGE_CANDIDATES_PER_PROMPT;
+  await updateStage(jobId, "image_generation", "running", 5, `Generating ${totalImages} image candidates.`);
 
-  for (let index = 0; index < prompts.length; index += 1) {
-    const prompt = prompts[index];
-    const { buffer, mimeType } = await generateImageFromPrompt(prompt.prompt, {
-      jobId,
-      stageName: "image_generation",
-    });
-    const asset = await saveGeneratedImageAsset(jobId, prompt.id, prompt.prompt, buffer, mimeType, "generated");
-    const progress = Math.round(((index + 1) / prompts.length) * 100);
-    await updateStage(
-      jobId,
-      "image_generation",
-      "running",
-      progress,
-      `Generated image ${index + 1} of ${prompts.length} for ${prompt.storyPart}.`,
-    );
-    await appendJobLog(
-      jobId,
-      "success",
-      "image_generation",
-      `Image candidate ${asset.fileName} is ready for ${prompt.storyPart}.`,
-    );
+  let generatedCount = 0;
+  for (let promptIndex = 0; promptIndex < prompts.length; promptIndex += 1) {
+    const prompt = prompts[promptIndex];
+    for (let candidateIndex = 0; candidateIndex < IMAGE_CANDIDATES_PER_PROMPT; candidateIndex += 1) {
+      await assertJobCanContinue(jobId, processingRunId);
+      const { buffer, mimeType } = await generateImageFromPrompt(prompt.prompt, {
+        jobId,
+        stageName: "image_generation",
+      });
+      await assertJobCanContinue(jobId, processingRunId);
+      const asset = await saveGeneratedImageAsset(jobId, prompt.id, prompt.prompt, buffer, mimeType, "generated");
+      generatedCount += 1;
+      const progress = Math.round((generatedCount / totalImages) * 100);
+      await updateStage(
+        jobId,
+        "image_generation",
+        "running",
+        progress,
+        `Generated image ${candidateIndex + 1} of ${IMAGE_CANDIDATES_PER_PROMPT} for ${prompt.storyPart}.`,
+      );
+      await appendJobLog(
+        jobId,
+        "success",
+        "image_generation",
+        `Image candidate ${asset.fileName} is ready for ${prompt.storyPart} (${candidateIndex + 1} of ${IMAGE_CANDIDATES_PER_PROMPT}).`,
+      );
+    }
   }
 
   await updateJob(jobId, (current) => ({
@@ -431,13 +578,13 @@ async function generateImageCandidates(jobId: string, job: JobIndex, prompts: Jo
       status: "awaiting_approval",
     },
   }));
-  await updateStage(jobId, "image_generation", "completed", 100, `Generated ${prompts.length} image candidates.`);
+  await updateStage(jobId, "image_generation", "completed", 100, `Generated ${totalImages} image candidates.`);
   await updateStage(
     jobId,
     "image_approval",
     "running",
     0,
-    `Review ${prompts.length} generated images and approve or reject each.`,
+    `Review ${totalImages} generated images and approve or reject each.`,
   );
 }
 
@@ -448,20 +595,23 @@ async function generateTextArtifact(
   artifactKey: "playByPlay" | "dmNotes" | "summary" | "story" | "title" | "imagePrompt" | "lyrics" | "songPrompt",
   prompt: string,
   instructions: string,
+  processingRunId: string,
 ): Promise<string> {
+  await assertJobCanContinue(jobId, processingRunId);
   if (hasCompletedStage(job, stageName)) {
     try {
-      await appendJobLog(jobId, "info", stageName, `Reusing previously generated ${artifactKey}.`);
+      await appendJobLog(jobId, "info", stageName, `Reusing previously generated ${artifactLabels[artifactKey]}.`);
       return await readActiveArtifactText(jobId, artifactKey);
     } catch {
-      await appendJobLog(jobId, "warning", stageName, `${artifactKey} was missing. Regenerating it.`);
+      await appendJobLog(jobId, "warning", stageName, `${artifactLabels[artifactKey]} was missing. Regenerating it.`);
     }
   }
 
-  await updateStage(jobId, stageName, "running", 10, `Generating ${artifactKey}.`);
-  const content = await sendTextMessage(instructions, prompt, jobId, stageName);
+  await updateStage(jobId, stageName, "running", 10, `Generating ${artifactLabels[artifactKey]}.`);
+  const content = await sendTextMessage(instructions, prompt, jobId, stageName, processingRunId);
+  await assertJobCanContinue(jobId, processingRunId);
   await saveArtifactVersion(jobId, artifactKey, content, "generated");
-  await updateStage(jobId, stageName, "completed", 100, `${artifactKey} generated.`);
+  await updateStage(jobId, stageName, "completed", 100, `${artifactLabels[artifactKey]} generated.`);
   return content;
 }
 
@@ -470,7 +620,11 @@ async function sendTextMessage(
   prompt: string,
   jobId?: string,
   stageName?: JobStageName,
+  processingRunId?: string,
 ): Promise<string> {
+  if (jobId && processingRunId) {
+    await assertJobCanContinue(jobId, processingRunId);
+  }
   const appConfig = await getAppConfig();
   const messages: ChatCompletionMessageParam[] = [];
 
@@ -487,10 +641,19 @@ async function sendTextMessage(
   });
 
   const result = await getTextCompletion<string>(messages, appConfig.model, undefined, { jobId, stageName });
+  if (jobId && processingRunId) {
+    await assertJobCanContinue(jobId, processingRunId);
+  }
   return result.completion;
 }
 
-async function createBulletPoints(jobId: string, audioFilePath: string, instructions: string): Promise<string> {
+async function createBulletPoints(
+  jobId: string,
+  audioFilePath: string,
+  instructions: string,
+  processingRunId: string,
+): Promise<string> {
+  await assertJobCanContinue(jobId, processingRunId);
   const duration = await getAudioDuration(audioFilePath);
   await appendJobLog(jobId, "info", "bullet_points", `Audio duration detected: ${Math.ceil(duration / 60)} minutes.`);
   const progressDir = getJobProgressDir(jobId);
@@ -512,6 +675,7 @@ async function createBulletPoints(jobId: string, audioFilePath: string, instruct
     }
 
     const output = await generateBulletPointSegmentOutput(jobId, audioFilePath, instructions, "Part 1", duration);
+    await assertJobCanContinue(jobId, processingRunId);
     await saveArtifactOutput(jobId, "bulletPoints", "part-001", "Part 1", output);
     return output;
   }
@@ -521,6 +685,7 @@ async function createBulletPoints(jobId: string, audioFilePath: string, instruct
   await appendJobLog(jobId, "warning", "bullet_points", `Splitting audio into ${parts} parts for processing.`);
 
   for (let index = 0; index < parts; index += 1) {
+    await assertJobCanContinue(jobId, processingRunId);
     const partNumber = index + 1;
     const startTime = index * MAX_DIRECT_AUDIO_SECONDS;
     const partDuration = Math.min(MAX_DIRECT_AUDIO_SECONDS, duration - startTime);
@@ -544,13 +709,16 @@ async function createBulletPoints(jobId: string, audioFilePath: string, instruct
 
     await appendJobLog(jobId, "info", "bullet_points", `Creating and processing ${partName}.`);
     await splitAudio(audioFilePath, partPath, startTime, partDuration);
+    await assertJobCanContinue(jobId, processingRunId);
     const output = await generateBulletPointSegmentOutput(
       jobId,
       partPath,
       instructions,
       `Part ${partNumber}`,
       partDuration,
+      processingRunId,
     );
+    await assertJobCanContinue(jobId, processingRunId);
     await saveArtifactOutput(jobId, "bulletPoints", outputId, `Part ${partNumber}`, output);
     partOutputs.push(output);
 
@@ -558,7 +726,8 @@ async function createBulletPoints(jobId: string, audioFilePath: string, instruct
     await updateStage(jobId, "bullet_points", "running", progress, `Processed part ${partNumber} of ${parts}.`);
   }
 
-  return synthesizeBulletPointOutputs(jobId, instructions, partOutputs, duration);
+  await assertJobCanContinue(jobId, processingRunId);
+  return synthesizeBulletPointOutputs(jobId, instructions, partOutputs, duration, processingRunId);
 }
 
 export async function regenerateBulletPointOutput(jobId: string, outputId: string): Promise<JobDetail> {
@@ -681,8 +850,18 @@ async function generateBulletPointSegmentOutput(
   instructions: string,
   label: string,
   durationSeconds: number,
+  processingRunId?: string,
 ): Promise<string> {
-  const output = await sendAudioMessage(jobId, audioFilePath, instructions, buildBulletPointsPrompt(durationSeconds));
+  const output = await sendAudioMessage(
+    jobId,
+    audioFilePath,
+    instructions,
+    buildBulletPointsPrompt(durationSeconds),
+    processingRunId,
+  );
+  if (processingRunId) {
+    await assertJobCanContinue(jobId, processingRunId);
+  }
 
   try {
     return validateBulletPointOutput(output, durationSeconds).normalizedText;
@@ -699,7 +878,7 @@ async function generateBulletPointSegmentOutput(
       throw new Error(`Unable to generate valid bullet points for ${label}: ${validationMessage}`);
     }
 
-    const reformattedOutput = await reformatBulletPointOutput(jobId, label, output, durationSeconds);
+    const reformattedOutput = await reformatBulletPointOutput(jobId, label, output, durationSeconds, processingRunId);
     try {
       return validateBulletPointOutput(reformattedOutput, durationSeconds).normalizedText;
     } catch (reformatError) {
@@ -720,7 +899,11 @@ async function synthesizeBulletPointOutputs(
   instructions: string,
   partOutputs: string[],
   durationSeconds: number,
+  processingRunId?: string,
 ): Promise<string> {
+  if (processingRunId) {
+    await assertJobCanContinue(jobId, processingRunId);
+  }
   if (partOutputs.length === 0) {
     throw new Error("Cannot synthesize bullet points without segment outputs.");
   }
@@ -729,7 +912,16 @@ async function synthesizeBulletPointOutputs(
     return validateBulletPointOutput(partOutputs[0], durationSeconds).normalizedText;
   }
 
-  const combined = await sendTextMessage(instructions, buildSynthesisPrompt(partOutputs), jobId, "bullet_points");
+  const combined = await sendTextMessage(
+    instructions,
+    buildSynthesisPrompt(partOutputs),
+    jobId,
+    "bullet_points",
+    processingRunId,
+  );
+  if (processingRunId) {
+    await assertJobCanContinue(jobId, processingRunId);
+  }
   try {
     return validateBulletPointOutput(combined, durationSeconds).normalizedText;
   } catch (error) {
@@ -753,13 +945,18 @@ async function reformatBulletPointOutput(
   label: string,
   output: string,
   durationSeconds: number,
+  processingRunId?: string,
 ): Promise<string> {
   const reformatted = await sendTextMessage(
     NO_INSTRUCTIONS,
     buildBulletPointReformatPrompt(output, durationSeconds),
     jobId,
     "bullet_points",
+    processingRunId,
   );
+  if (processingRunId) {
+    await assertJobCanContinue(jobId, processingRunId);
+  }
   await appendJobLog(
     jobId,
     "info",
@@ -834,7 +1031,11 @@ async function sendAudioMessage(
   audioFilePath: string,
   instructions: string,
   prompt: string,
+  processingRunId?: string,
 ): Promise<string> {
+  if (processingRunId) {
+    await assertJobCanContinue(jobId, processingRunId);
+  }
   const appConfig = await getAppConfig();
   const client = await loadAudioClient(appConfig.model);
   const audioBuffer = await fs.readFile(audioFilePath);
@@ -925,6 +1126,9 @@ async function sendAudioMessage(
       throw new Error("Audio model returned empty content.");
     }
 
+    if (processingRunId) {
+      await assertJobCanContinue(jobId, processingRunId);
+    }
     return content;
   } catch (error) {
     await writePromptDebugEntry(debugFile, {
@@ -992,6 +1196,7 @@ function serializePromptError(error: unknown): Record<string, unknown> {
 async function prepareAudioFile(
   jobId: string,
   sourcePath: string,
+  processingRunId?: string,
 ): Promise<{ processedFilePath: string; processedFileName: string }> {
   const sourceDir = getJobSourceDir(jobId);
   const audioBuffer = await fs.readFile(sourcePath);
@@ -1016,6 +1221,9 @@ async function prepareAudioFile(
     if (processedFilePath !== sourcePath) {
       await fs.copyFile(sourcePath, processedFilePath);
     }
+    if (processingRunId) {
+      await assertJobCanContinue(jobId, processingRunId);
+    }
     await appendJobLog(jobId, "success", "prepare_audio", "MP3 validated with no conversion required.");
     return { processedFilePath, processedFileName };
   }
@@ -1023,6 +1231,9 @@ async function prepareAudioFile(
   const processedFileName = "processed.mp3";
   const processedFilePath = path.join(sourceDir, processedFileName);
   await convertM4aToMp3(sourcePath, processedFilePath);
+  if (processingRunId) {
+    await assertJobCanContinue(jobId, processingRunId);
+  }
   await appendJobLog(jobId, "success", "prepare_audio", "Converted uploaded audio to MP3.");
   return { processedFilePath, processedFileName };
 }
@@ -1174,16 +1385,16 @@ Do not include any here is your title preamble in the title.`;
 function buildImagePromptSetPrompt(story: string): string {
   return `${story}
 
-Create exactly three image prompts for three different parts of the story: an early moment, a middle moment, and a late moment.
+Create exactly three image prompts for three different parts of the story: a start moment, a middle moment, and an end moment.
 Each prompt should describe a distinct visual scene from that part of the story.
 Avoid complex scenes with too many characters or actions.
 Focus on scenic descriptions, atmosphere, lighting, and mood.
 Do not focus on specific facial details or intricate costume details.
 Respond with JSON only using this exact shape:
 [
-  {"storyPart":"Early story","prompt":"..."},
-  {"storyPart":"Middle story","prompt":"..."},
-  {"storyPart":"Late story","prompt":"..."}
+  {"storyPart":"Start","prompt":"..."},
+  {"storyPart":"Middle","prompt":"..."},
+  {"storyPart":"End","prompt":"..."}
 ]
 Do not include markdown fences or any extra commentary.`;
 }
@@ -1200,12 +1411,13 @@ function parseImagePrompts(input: string): JobImagePrompt[] {
     .filter((chunk) => chunk.length > 0)
     .slice(0, 3)
     .map((chunk, index) => {
+      const fallbackLabels = ["Start", "Middle", "End"] as const;
       const [firstLine, ...rest] = chunk.split("\n");
       const headerMatch = firstLine.match(/^(?:\d+[).:-]?\s*)?([^:]+):\s*(.+)$/);
       return JobImagePrompt.parse({
         id: `prompt-${index + 1}`,
-        label: `Image ${index + 1}`,
-        storyPart: headerMatch?.[1]?.trim() || `Part ${index + 1}`,
+        label: fallbackLabels[index] ?? `Image ${index + 1}`,
+        storyPart: headerMatch?.[1]?.trim() || (fallbackLabels[index] ?? `Part ${index + 1}`),
         prompt: headerMatch?.[2]?.trim() || [firstLine, ...rest].join(" ").trim(),
       });
     });
@@ -1223,14 +1435,15 @@ function tryParseImagePromptJson(input: string): JobImagePrompt[] {
     if (!Array.isArray(parsed)) {
       return [];
     }
+    const fallbackLabels = ["Start", "Middle", "End"] as const;
     return parsed.slice(0, 3).map((entry, index) =>
       JobImagePrompt.parse({
         id: `prompt-${index + 1}`,
-        label: `Image ${index + 1}`,
+        label: fallbackLabels[index] ?? `Image ${index + 1}`,
         storyPart:
           typeof entry.storyPart === "string" && entry.storyPart.trim().length > 0
             ? entry.storyPart.trim()
-            : `Part ${index + 1}`,
+            : (fallbackLabels[index] ?? `Part ${index + 1}`),
         prompt: typeof entry.prompt === "string" ? entry.prompt.trim() : "",
       }),
     );

@@ -30,6 +30,15 @@ export class SendJobToContentfulController extends AbstractController<NoBodyPara
     }
 
     const approvedImages = current.image.generatedAssets.filter((asset) => asset.approvedAt && !asset.rejectedAt);
+    const approvedImagesByPrompt = current.image.prompts.map((prompt, index) => ({
+      insertAfterParagraph: index + 1,
+      images: approvedImages
+        .filter((asset) => asset.promptId === prompt.id)
+        .map((image) => ({
+          imagePath: getJobImagePath(pathParams.jobId, image.fileName),
+          imageMimeType: image.mimeType,
+        })),
+    }));
 
     await updateJob(pathParams.jobId, (job) => ({
       ...job,
@@ -53,10 +62,7 @@ export class SendJobToContentfulController extends AbstractController<NoBodyPara
       year: current.submission?.selection.year ?? null,
       month: current.submission?.selection.month ?? null,
       day: current.submission?.selection.day ?? null,
-      images: approvedImages.map((image) => ({
-        imagePath: getJobImagePath(pathParams.jobId, image.fileName),
-        imageMimeType: image.mimeType,
-      })),
+      images: approvedImagesByPrompt,
     });
 
     await updateJob(pathParams.jobId, (job) => ({

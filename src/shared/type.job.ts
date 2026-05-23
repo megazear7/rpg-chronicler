@@ -2,10 +2,10 @@ import z from "zod";
 import { ContentfulSubmissionSnapshot } from "./type.contentful-context.js";
 import { UsageBreakdown } from "./type.prompt.js";
 
-export const JobStatus = z.enum(["queued", "running", "completed", "failed"]);
+export const JobStatus = z.enum(["queued", "running", "paused", "completed", "failed"]);
 export type JobStatus = z.infer<typeof JobStatus>;
 
-export const JobStageStatus = z.enum(["pending", "running", "completed", "failed"]);
+export const JobStageStatus = z.enum(["pending", "running", "paused", "completed", "failed"]);
 export type JobStageStatus = z.infer<typeof JobStageStatus>;
 
 export const JobStageKind = z.enum(["human", "ai"]);
@@ -173,6 +173,7 @@ export type JobContentful = z.infer<typeof JobContentful>;
 
 export const JobIndex = z.object({
   id: z.uuid(),
+  processingRunId: z.string().min(1),
   file: z.string(),
   instructionsText: z.string().nullable().optional(),
   submission: ContentfulSubmissionSnapshot.nullable().optional(),
@@ -180,6 +181,7 @@ export const JobIndex = z.object({
   totalProgress: z.number().min(0).max(100),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  pausedAt: z.string().datetime().nullable().optional(),
   archivedAt: z.string().datetime().nullable(),
   currentStage: JobStageName.nullable(),
   usage: UsageBreakdown,
@@ -266,3 +268,17 @@ export const artifactLabels: Record<ArtifactKey, string> = {
 
 export const jobStageOrder = JobStageName.options;
 export const artifactOrder = ArtifactKey.options;
+
+export const rerunnableJobStageNames: JobStageName[] = [
+  "prepare_audio",
+  "bullet_points",
+  "play_by_play",
+  "dm_notes",
+  "summary",
+  "story",
+  "title",
+  "image_prompt",
+  "image_generation",
+  "lyrics",
+  "song_prompt",
+];

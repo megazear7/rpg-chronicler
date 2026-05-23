@@ -9,7 +9,10 @@ import { selectJobSongService } from "../shared/service.select-job-song.js";
 import { sendJobToContentfulService } from "../shared/service.send-job-to-contentful.js";
 import { sendJobToNotionService } from "../shared/service.send-job-to-notion.js";
 import { updateArtifactService } from "../shared/service.update-artifact.js";
+import { archiveJobService } from "../shared/service.archive-job.js";
+import { restoreJobService } from "../shared/service.restore-job.js";
 import { ArtifactDetail, ArtifactKey, JobDetail, JobStage, JobStageName } from "../shared/type.job.js";
+import { UsageBreakdown, UsageSummary } from "../shared/type.prompt.js";
 import { globalStyles } from "./styles.global.js";
 import { RpgChroniclerAppProvider } from "./provider.app.js";
 import "./component.tooltip.js";
@@ -64,6 +67,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
   @state() private savingSongFields: Partial<Record<ArtifactKey, boolean>> = {};
   @state() private savingContentfulFields: Partial<Record<ArtifactKey, boolean>> = {};
   @state() private restarting = false;
+  @state() private updatingArchiveState = false;
   @state() private sendingToNotion = false;
   private eventSource: EventSource | null = null;
 
@@ -362,6 +366,12 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         gap: var(--size-small);
       }
 
+      .usage-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--size-small);
+      }
+
       .media-preview {
         max-height: var(--size-5x);
         border-radius: var(--border-radius-medium);
@@ -527,6 +537,15 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
                     </button>
                   `
                 : html``}
+              <button ?disabled=${this.updatingArchiveState} @click=${this.handleToggleArchive}>
+                ${this.updatingArchiveState
+                  ? this.job.archivedAt
+                    ? "Restoring..."
+                    : "Archiving..."
+                  : this.job.archivedAt
+                    ? "Restore"
+                    : "Archive"}
+              </button>
               <a href=${`/jobs/${this.params.jobId}/logs`}>Logs ${detailsIcon}</a>
             </div>
           </div>
@@ -535,6 +554,10 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
             <div class="metric">
               <span>Status</span>
               <strong class=${`status-pill ${this.job.status}`}>${this.job.status}</strong>
+            </div>
+            <div class="metric">
+              <span>Archived</span>
+              <strong>${this.job.archivedAt ? new Date(this.job.archivedAt).toLocaleString() : "No"}</strong>
             </div>
             <div class="metric">
               <span>Progress</span>
@@ -548,7 +571,20 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
               <span>Artifacts</span>
               <strong>${this.job.artifacts.filter((artifact) => artifact.versionCount > 0).length}</strong>
             </div>
+            <div class="metric">
+              <span>Total tokens</span>
+              <strong>${this.formatNumber(this.job.usage.total.totalTokens)}</strong>
+            </div>
+            <div class="metric">
+              <span>Total cost</span>
+              <strong>${this.formatCurrency(this.job.usage.total.totalCost)}</strong>
+            </div>
           </div>
+        </section>
+
+        <section class="panel">
+          <h2>Usage</h2>
+          ${this.renderUsageSummary(this.job.usage)}
         </section>
 
         <section class="panel">
@@ -727,6 +763,62 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
           `
         : html``}
     `;
+  }
+
+  private renderUsageSummary(usage: UsageBreakdown): TemplateResult {
+    return html`
+      <div class="hero-grid">
+        ${this.renderUsageMetric("Input tokens", usage.total.inputTokens)}
+        ${this.renderUsageMetric("Output tokens", usage.total.outputTokens)}
+        ${this.renderUsageMetric("Total tokens", usage.total.totalTokens)}
+        <div class="metric">
+          <span>Total cost</span>
+          <strong>${this.formatCurrency(usage.total.totalCost)}</strong>
+        </div>
+      </div>
+      ${usage.total.totalTokens === 0
+        ? html`
+            <p>
+              No tracked model usage is available for this job yet. Older jobs created before usage tracking was added
+              will show zero here.
+            </p>
+          `
+        : html``}
+      <div class="usage-pills">
+        ${this.renderUsagePill("Text", usage.text)} ${this.renderUsagePill("Audio", usage.audio)}
+        ${this.renderUsagePill("Image", usage.image)}
+      </div>
+    `;
+  }
+
+  private renderUsageMetric(label: string, value: number): TemplateResult {
+    return html`
+      <div class="metric">
+        <span>${label}</span>
+        <strong>${this.formatNumber(value)}</strong>
+      </div>
+    `;
+  }
+
+  private renderUsagePill(label: string, usage: UsageSummary): TemplateResult {
+    return html`
+      <span class="pill">
+        ${label}: ${this.formatNumber(usage.totalTokens)} tokens, ${this.formatCurrency(usage.totalCost)}
+      </span>
+    `;
+  }
+
+  private formatCurrency(value: number): string {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: value > 0 && value < 0.01 ? 4 : 2,
+      maximumFractionDigits: 6,
+    }).format(value);
+  }
+
+  private formatNumber(value: number): string {
+    return new Intl.NumberFormat().format(value);
   }
 
   private renderStagePath(stageName: JobStage["name"]): string {
@@ -1239,6 +1331,20 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
       dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to restart the failed job."));
     } finally {
       this.restarting = false;
+    }
+  };
+
+  private handleToggleArchive = async (): Promise<void> => {
+    this.updatingArchiveState = true;
+    try {
+      this.job = this.job?.archivedAt
+        ? await restoreJobService.fetch({ jobId: this.params.jobId })
+        : await archiveJobService.fetch({ jobId: this.params.jobId });
+      dispatch(this, SuccessEvent(this.job?.archivedAt ? "Job archived." : "Job restored."));
+    } catch (error) {
+      dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to update archive state."));
+    } finally {
+      this.updatingArchiveState = false;
     }
   };
 

@@ -33,6 +33,7 @@ import {
   JobStatus,
 } from "../shared/type.job.js";
 import { ContentfulSubmissionSnapshot } from "../shared/type.contentful-context.js";
+import { createEmptyUsageBreakdown, normalizeUsageBreakdown } from "../shared/util.usage.js";
 
 const JOBS_DIR = path.join(process.cwd(), "data", "jobs");
 
@@ -50,6 +51,7 @@ function createStages(): JobStage[] {
       status: JobStageStatus.enum.pending,
       progress: 0,
       updatedAt: timestamp,
+      usage: createEmptyUsageBreakdown(),
     }),
   );
 }
@@ -255,6 +257,7 @@ function normalizeStages(stages: unknown): JobStage[] {
       status: base?.status ?? (inferredConfigureContext ? JobStageStatus.enum.completed : JobStageStatus.enum.pending),
       progress: base?.progress ?? (inferredConfigureContext ? 100 : 0),
       updatedAt: base?.updatedAt ?? now(),
+      usage: normalizeUsageBreakdown(base?.usage),
       message:
         base?.message ??
         (inferredConfigureContext ? "Legacy job imported before context selection existed." : undefined),
@@ -287,7 +290,9 @@ function normalizeJob(job: unknown): JobIndex {
     totalProgress: typeof base.totalProgress === "number" ? base.totalProgress : 0,
     createdAt: typeof base.createdAt === "string" ? base.createdAt : now(),
     updatedAt: typeof base.updatedAt === "string" ? base.updatedAt : now(),
+    archivedAt: typeof base.archivedAt === "string" ? base.archivedAt : null,
     currentStage: base.currentStage ?? null,
+    usage: normalizeUsageBreakdown(base.usage),
     errorMessage: typeof base.errorMessage === "string" ? base.errorMessage : null,
     stages,
     artifacts: Array.isArray(base.artifacts) ? base.artifacts : createArtifacts(),
@@ -408,7 +413,9 @@ export async function createJob(
       totalProgress: 0,
       createdAt: timestamp,
       updatedAt: timestamp,
+      archivedAt: null,
       currentStage: JobStageName.enum.upload,
+      usage: createEmptyUsageBreakdown(),
       errorMessage: null,
       stages: createStages(),
       artifacts: createArtifacts(),
@@ -1065,7 +1072,29 @@ export async function markNotionReady(jobId: string): Promise<JobIndex> {
   );
 }
 
-export async function listJobs(page: number, pageSize: number): Promise<JobListResponse> {
+export async function archiveJob(jobId: string): Promise<JobIndex> {
+  return updateJob(jobId, (job) =>
+    JobIndex.parse({
+      ...job,
+      archivedAt: job.archivedAt ?? now(),
+    }),
+  );
+}
+
+export async function restoreJob(jobId: string): Promise<JobIndex> {
+  return updateJob(jobId, (job) =>
+    JobIndex.parse({
+      ...job,
+      archivedAt: null,
+    }),
+  );
+}
+
+export async function listJobs(
+  page: number,
+  pageSize: number,
+  filter: "active" | "archived" | "all" = "active",
+): Promise<JobListResponse> {
   await ensureDir(JOBS_DIR);
   const entries = await fs.readdir(JOBS_DIR);
   const jobs = await Promise.all(
@@ -1079,6 +1108,15 @@ export async function listJobs(page: number, pageSize: number): Promise<JobListR
   );
   const items = jobs
     .filter((job): job is JobIndex => job !== null)
+    .filter((job) => {
+      if (filter === "all") {
+        return true;
+      }
+      if (filter === "archived") {
+        return Boolean(job.archivedAt);
+      }
+      return !job.archivedAt;
+    })
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   const start = (page - 1) * pageSize;
   return JobListResponse.parse({

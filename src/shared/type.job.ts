@@ -1,5 +1,6 @@
 import z from "zod";
 import { ContentfulSubmissionSnapshot } from "./type.contentful-context.js";
+import { UsageBreakdown } from "./type.prompt.js";
 
 export const JobStatus = z.enum(["queued", "running", "completed", "failed"]);
 export type JobStatus = z.infer<typeof JobStatus>;
@@ -79,6 +80,7 @@ export const JobStage = z.object({
   status: JobStageStatus,
   progress: z.number().min(0).max(100),
   updatedAt: z.string().datetime(),
+  usage: UsageBreakdown,
   message: z.string().optional(),
 });
 export type JobStage = z.infer<typeof JobStage>;
@@ -178,7 +180,9 @@ export const JobIndex = z.object({
   totalProgress: z.number().min(0).max(100),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  archivedAt: z.string().datetime().nullable(),
   currentStage: JobStageName.nullable(),
+  usage: UsageBreakdown,
   errorMessage: z.string().nullable().optional(),
   stages: z.array(JobStage),
   artifacts: z.array(ArtifactSummary),
@@ -204,6 +208,9 @@ export const JobListResponse = z.object({
   items: z.array(JobIndex),
 });
 export type JobListResponse = z.infer<typeof JobListResponse>;
+
+export const JobListFilter = z.enum(["active", "archived", "all"]);
+export type JobListFilter = z.infer<typeof JobListFilter>;
 
 export const jobStageLabels: Record<JobStageName, string> = {
   upload: "Upload",

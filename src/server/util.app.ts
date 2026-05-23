@@ -4,6 +4,7 @@ import { fileExists } from "./util.fs.js";
 import { RouteError } from "./main.errors.js";
 import { normalizeInstructionConfig } from "../shared/util.instructions.js";
 import { normalizeSubmissionSelection } from "../shared/util.contentful-context.js";
+import { usageBreakdownFromModelConfigs } from "../shared/util.usage.js";
 
 const DEFAULT_MODEL_CONFIG = {
   text: {
@@ -80,6 +81,7 @@ export const getAppConfig = async (): Promise<AppConfig> => {
   return AppConfig.parse({
     ...json,
     model: normalizeModelConfig(json.model),
+    usage: json.usage ?? usageBreakdownFromModelConfigs(normalizeModelConfig(json.model)),
     instructions: normalizeInstructionConfig(json.instructions),
     submissionDefaults: normalizeSubmissionSelection(json.submissionDefaults),
     latestSubmission: normalizeSubmissionSelection(json.latestSubmission ?? json.submissionDefaults),
@@ -92,6 +94,7 @@ export const saveAppConfig = async (app: AppConfig): Promise<void> => {
   const normalized = AppConfig.parse({
     ...app,
     model: normalizeModelConfig(app.model),
+    usage: app.usage,
     instructions: normalizeInstructionConfig(app.instructions),
     submissionDefaults: normalizeSubmissionSelection(app.submissionDefaults),
     latestSubmission: normalizeSubmissionSelection(app.latestSubmission ?? app.submissionDefaults),

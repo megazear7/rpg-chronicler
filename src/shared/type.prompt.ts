@@ -40,3 +40,24 @@ export const Cost = z.object({
   outputTokenCount: OutputTokenCount,
 });
 export type Cost = z.infer<typeof Cost>;
+
+export const UsageCostValue = z.number().min(0);
+export type UsageCostValue = z.infer<typeof UsageCostValue>;
+
+export const UsageSummary = z.object({
+  inputTokens: UsageTokens,
+  outputTokens: UsageTokens,
+  totalTokens: UsageTokens,
+  inputCost: UsageCostValue,
+  outputCost: UsageCostValue,
+  totalCost: UsageCostValue,
+});
+export type UsageSummary = z.infer<typeof UsageSummary>;
+
+export const UsageBreakdown = z.object({
+  text: UsageSummary,
+  audio: UsageSummary,
+  image: UsageSummary,
+  total: UsageSummary,
+});
+export type UsageBreakdown = z.infer<typeof UsageBreakdown>;

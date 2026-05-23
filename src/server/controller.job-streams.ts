@@ -4,6 +4,7 @@ import { streamJobService } from "../shared/service.stream-job.js";
 import { streamJobsService } from "../shared/service.stream-jobs.js";
 import { JobPathParameters } from "../shared/service.get-job.js";
 import { ListJobsPathParameters } from "../shared/service.list-jobs.js";
+import { JobListFilter } from "../shared/type.job.js";
 import { listJobs, readJobDetail } from "./util.job-store.js";
 import z from "zod";
 
@@ -61,6 +62,7 @@ export async function registerJobStreams(router: Router): Promise<void> {
           listJobs(
             z.coerce.number().int().positive().parse(params.page),
             z.coerce.number().int().positive().parse(params.pageSize),
+            JobListFilter.parse(params.filter),
           ),
         "jobs",
       );

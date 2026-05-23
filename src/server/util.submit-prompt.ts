@@ -6,6 +6,8 @@ import { ModelConfigs } from "../shared/type.model.js";
 import { PromptLog } from "../shared/type.prompt-log.js";
 import { promises as fs } from "fs";
 import { ONE_HOUR_IN_MS } from "../shared/util.time.js";
+import { JobStageName } from "../shared/type.job.js";
+import { recordModelUsage } from "./util.usage.js";
 
 interface CompletionWithUsage<T> {
   completion: T;
@@ -14,6 +16,11 @@ interface CompletionWithUsage<T> {
 
 interface RetryModelRequestOptions {
   onRetry?: (error: unknown, attempt: number, maxAttempts: number, delayMs: number) => Promise<void> | void;
+}
+
+interface UsageTrackingContext {
+  jobId?: string;
+  stageName?: JobStageName;
 }
 
 const MODEL_REQUEST_MAX_ATTEMPTS = 4;
@@ -119,6 +126,7 @@ export async function getTextCompletion<T>(
   messages: ChatCompletionMessageParam[],
   modelConfigs: ModelConfigs,
   zod?: ZodType<T>,
+  usageTracking?: UsageTrackingContext,
 ): Promise<CompletionWithUsage<T>> {
   const debugDir = "data/prompt";
   const timestamp = Date.now();
@@ -185,6 +193,14 @@ export async function getTextCompletion<T>(
   }
 
   await fs.writeFile(debugFile, JSON.stringify(PromptLog.parse({ timestamp, input, output }), null, 2));
+
+  await recordModelUsage({
+    modelKind: "text",
+    modelConfigs,
+    usage: output.usage!,
+    jobId: usageTracking?.jobId,
+    stageName: usageTracking?.stageName,
+  });
 
   if (zod) {
     return {

@@ -24,7 +24,10 @@ export class GenerateJobImageController extends AbstractController<NoBodyParams,
 
     for (let index = 0; index < current.image.prompts.length; index += 1) {
       const prompt = current.image.prompts[index];
-      const { buffer, mimeType } = await generateImageFromPrompt(prompt.prompt);
+      const { buffer, mimeType } = await generateImageFromPrompt(prompt.prompt, {
+        jobId: pathParams.jobId,
+        stageName: "image_generation",
+      });
       await saveGeneratedImageAsset(pathParams.jobId, prompt.id, prompt.prompt, buffer, mimeType, "generated");
       await updateStage(
         pathParams.jobId,

@@ -5,6 +5,8 @@ import { getJobService } from "../shared/service.get-job.js";
 import { streamJobService } from "../shared/service.stream-job.js";
 import { regenerateBulletPointOutputService } from "../shared/service.regenerate-bullet-point-output.js";
 import { rerunJobStageService } from "../shared/service.rerun-job-stage.js";
+import { completeContentfulStageService } from "../shared/service.complete-contentful-stage.js";
+import { completeNotionStageService } from "../shared/service.complete-notion-stage.js";
 import {
   ArtifactDetail,
   JobArtifactOutput,
@@ -47,8 +49,10 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
   private params = parseRouteParams("/jobs/:jobId/stage/:stageSlug", window.location.pathname);
   @state() private job: JobDetail | null = null;
   @state() private editors: Record<string, string> = {};
+  @state() private externalReferenceInputs: Partial<Record<"contentful" | "notion", string>> = {};
   @state() private regeneratingOutputs: Record<string, boolean> = {};
   @state() private rerunningStage = false;
+  @state() private completingExternalStage: JobStageName | null = null;
   @state() private copyState: "idle" | "copied" | "error" = "idle";
   private eventSource: EventSource | null = null;
 
@@ -131,6 +135,19 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
         padding: var(--size-medium);
         font: inherit;
         line-height: 1.6;
+        outline: none !important;
+      }
+
+      .editor-shell input {
+        width: 100%;
+        box-sizing: border-box;
+        background: transparent;
+        color: var(--color-primary-text);
+        border: none;
+        border-radius: 22px;
+        padding: var(--size-medium);
+        font: inherit;
+        line-height: 1.4;
         outline: none !important;
       }
 
@@ -414,7 +431,9 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
           ? this.renderArtifactEditor(artifact)
           : stageName === "prepare_audio"
             ? this.renderPrepareAudioOverview(stage, logs)
-            : this.renderStageOverview(stage, logs)}
+            : stageName === "contentful" || stageName === "notion"
+              ? this.renderExternalStageCompletion(stageName, stage, logs)
+              : this.renderStageOverview(stage, logs)}
         ${stageName === "bullet_points" ? this.renderBulletPointOutputs() : html``}
         ${artifact ? this.renderVersions(artifact) : html``}
 
@@ -499,6 +518,67 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
               <div class="pill">Recent log: ${formatDisplayText(logs[logs.length - 1]?.message ?? "")}</div>
             `
           : html``}
+      </section>
+    `;
+  }
+
+  private renderExternalStageCompletion(
+    stageName: "contentful" | "notion",
+    stage: JobStage | null,
+    logs: JobLogEntry[],
+  ): TemplateResult {
+    const currentUrl =
+      stageName === "contentful" ? (this.job?.contentful.entryUrl ?? null) : (this.job?.notion.pageUrl ?? null);
+    const currentId =
+      stageName === "contentful" ? (this.job?.contentful.entryId ?? null) : (this.job?.notion.pageId ?? null);
+    const inputValue = this.externalReferenceInputs[stageName] ?? currentUrl ?? currentId ?? "";
+    const isSaving = this.completingExternalStage === stageName;
+    const title = stageName === "contentful" ? "Link Contentful entry" : "Link Notion page";
+    const description =
+      stageName === "contentful"
+        ? "Paste a Contentful entry URL or entry ID to mark this stage complete manually."
+        : "Paste a Notion page URL or page ID to mark this stage complete manually.";
+    const buttonLabel = stageName === "contentful" ? "Save Contentful reference" : "Save Notion reference";
+
+    return html`
+      <section class="panel empty-state">
+        <div class="section-title">
+          <h2>${title}</h2>
+          ${currentUrl
+            ? html`
+                <a class="link-chip" href=${currentUrl} target="_blank" rel="noreferrer">Open linked page</a>
+              `
+            : html``}
+        </div>
+        <p>${description}</p>
+        ${currentId
+          ? html`
+              <div class="pill">Current ID: ${currentId}</div>
+            `
+          : html``}
+        ${stage?.message
+          ? html`
+              <div class="pill">Latest note: ${formatDisplayText(stage.message)}</div>
+            `
+          : html``}
+        ${logs.length > 0
+          ? html`
+              <div class="pill">Recent log: ${formatDisplayText(logs[logs.length - 1]?.message ?? "")}</div>
+            `
+          : html``}
+        <div class="editor-shell">
+          <input
+            .value=${inputValue}
+            placeholder=${stageName === "contentful" ? "Entry URL or entry ID" : "Page URL or page ID"}
+            @input=${(event: Event) => this.handleExternalReferenceInput(stageName, event)} />
+        </div>
+        <div class="editor-actions">
+          <button
+            ?disabled=${isSaving || inputValue.trim().length === 0}
+            @click=${() => this.handleCompleteExternalStage(stageName)}>
+            ${isSaving ? "Saving..." : buttonLabel}
+          </button>
+        </div>
       </section>
     `;
   }
@@ -767,6 +847,14 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
     };
   }
 
+  private handleExternalReferenceInput(stageName: "contentful" | "notion", event: Event): void {
+    const target = event.currentTarget as HTMLInputElement;
+    this.externalReferenceInputs = {
+      ...this.externalReferenceInputs,
+      [stageName]: target.value,
+    };
+  }
+
   private handleResetEditor(artifact: ArtifactSummary): void {
     this.editors = {
       ...this.editors,
@@ -829,6 +917,31 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
       dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to rerun this stage."));
     } finally {
       this.rerunningStage = false;
+    }
+  }
+
+  private async handleCompleteExternalStage(stageName: "contentful" | "notion"): Promise<void> {
+    const reference = (this.externalReferenceInputs[stageName] ?? "").trim();
+    if (reference.length === 0) {
+      dispatch(this, WarningEvent("Paste an ID or URL first."));
+      return;
+    }
+
+    this.completingExternalStage = stageName;
+    try {
+      this.job =
+        stageName === "contentful"
+          ? await completeContentfulStageService.fetch({ jobId: this.params.jobId, reference })
+          : await completeNotionStageService.fetch({ jobId: this.params.jobId, reference });
+      this.externalReferenceInputs = {
+        ...this.externalReferenceInputs,
+        [stageName]: "",
+      };
+      dispatch(this, SuccessEvent(`${stageName === "contentful" ? "Contentful" : "Notion"} stage completed.`));
+    } catch (error) {
+      dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to save external reference."));
+    } finally {
+      this.completingExternalStage = null;
     }
   }
 

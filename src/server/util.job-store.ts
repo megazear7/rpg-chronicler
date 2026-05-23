@@ -1097,6 +1097,38 @@ export async function markNotionReady(jobId: string): Promise<JobIndex> {
   );
 }
 
+export async function setContentfulEntryReference(jobId: string, entryId: string, entryUrl: string): Promise<JobIndex> {
+  const sentAt = now();
+  return updateJob(jobId, (job) =>
+    JobIndex.parse({
+      ...job,
+      contentful: {
+        ...job.contentful,
+        status: "sent",
+        entryId,
+        entryUrl,
+        sentAt,
+      },
+    }),
+  );
+}
+
+export async function setNotionPageReference(jobId: string, pageId: string, pageUrl: string): Promise<JobIndex> {
+  const sentAt = now();
+  return updateJob(jobId, (job) =>
+    JobIndex.parse({
+      ...job,
+      notion: {
+        ...job.notion,
+        status: "sent",
+        pageId,
+        pageUrl,
+        sentAt,
+      },
+    }),
+  );
+}
+
 export async function archiveJob(jobId: string): Promise<JobIndex> {
   return updateJob(jobId, (job) =>
     JobIndex.parse({

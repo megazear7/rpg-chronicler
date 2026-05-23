@@ -150,7 +150,7 @@ export const JobSongState = z.object({
 export type JobSongState = z.infer<typeof JobSongState>;
 
 export const JobNotionState = z.object({
-  status: z.enum(["not_ready", "ready", "sending", "sent"]),
+  status: z.enum(["not_ready", "ready", "sending", "failed", "sent"]),
   pageId: z.string().nullable(),
   pageUrl: z.string().nullable(),
   sentAt: z.string().datetime().nullable(),

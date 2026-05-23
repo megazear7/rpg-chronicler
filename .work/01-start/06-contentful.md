@@ -1,2 +1,0 @@
-Update the UI (and add API services as needed) to allow for "Sending to Contentful" feature as seen in the `/Users/alexlockhart/src/rpg-session-processor/src/models.ts` file.
-The user should be able to see the data that would be sent to Contentful (title, summary, story, dmNotes), and then approve and send that data to Contentful. Once it is sent, it should not be able to be re-sent and instead should show a richly formatted preview widget that links to the Contentful entry.

@@ -225,6 +225,7 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
         bottom: var(--size-medium);
         display: flex;
         justify-content: center;
+        gap: var(--size-medium);
         z-index: 10;
       }
 
@@ -334,6 +335,30 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
           </section>
 
           <section class="panel">
+            <div class="eyebrow">Recent Jobs</div>
+            <h2>Most recent activity</h2>
+            ${this.recentJobs.length === 0
+              ? html`
+                  <p>No recent jobs yet.</p>
+                `
+              : html`
+                  <div class="recent-grid">
+                    ${this.recentJobs.map(
+                      (job) => html`
+                        <article class="recent-card">
+                          <div class="status-pill ${job.status}">${job.status}</div>
+                          <strong>${job.file}</strong>
+                          <div>Progress ${job.totalProgress}%</div>
+                          <div>Stage ${job.currentStage ?? "complete"}</div>
+                          <a href=${`/jobs/${job.id}`}>Open job ${rightArrowIcon}</a>
+                        </article>
+                      `,
+                    )}
+                  </div>
+                `}
+          </section>
+
+          <section class="panel">
             <div class="eyebrow">Workflow</div>
             <h2>Human and AI checkpoints</h2>
             <div class="workflow-list">
@@ -368,33 +393,10 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
               </div>
             </div>
           </section>
-
-          <section class="panel">
-            <div class="eyebrow">Recent Jobs</div>
-            <h2>Most recent activity</h2>
-            ${this.recentJobs.length === 0
-              ? html`
-                  <p>No recent jobs yet.</p>
-                `
-              : html`
-                  <div class="recent-grid">
-                    ${this.recentJobs.map(
-                      (job) => html`
-                        <article class="recent-card">
-                          <div class="status-pill ${job.status}">${job.status}</div>
-                          <strong>${job.file}</strong>
-                          <div>Progress ${job.totalProgress}%</div>
-                          <div>Stage ${job.currentStage ?? "complete"}</div>
-                          <a href=${`/jobs/${job.id}`}>Open job ${rightArrowIcon}</a>
-                        </article>
-                      `,
-                    )}
-                  </div>
-                `}
-          </section>
         </div>
 
         <nav class="bottom-nav">
+          <a href="/usage">View usage</a>
           <a href="/instructions">Configure workflow defaults</a>
           <a href="/jobs">Browse all jobs ${rightArrowIcon}</a>
         </nav>
@@ -404,8 +406,9 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
 
   override async load(): Promise<void> {
     await super.load();
-    const jobs = await listJobsService.fetch({ page: "1", pageSize: "4" });
+    const jobs = await listJobsService.fetch({ filter: "active", page: "1", pageSize: "4" });
     this.recentJobs = jobs.items;
+    this.latestJob = jobs.items[0] ?? null;
   }
 
   private handleFileChange(event: Event): void {

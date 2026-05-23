@@ -16,6 +16,7 @@ import {
   JobStage,
   JobStageName,
 } from "../shared/type.job.js";
+import { UsageBreakdown, UsageSummary } from "../shared/type.prompt.js";
 import { globalStyles } from "./styles.global.js";
 import { RpgChroniclerAppProvider } from "./provider.app.js";
 import { copyIcon, detailsIcon, leftArrowIcon, refreshIcon, rightArrowIcon } from "./icons.js";
@@ -230,6 +231,12 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
         align-items: center;
       }
 
+      .usage-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--size-small);
+      }
+
       audio {
         width: 100%;
       }
@@ -372,6 +379,14 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
             : html``}
         </section>
 
+        ${stage
+          ? html`
+              <section class="panel">
+                <h2>Usage</h2>
+                ${this.renderUsageSummary(stage.usage)}
+              </section>
+            `
+          : html``}
         ${artifact
           ? this.renderArtifactEditor(artifact)
           : stageName === "prepare_audio"
@@ -656,6 +671,41 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
     return `/jobs/${this.params.jobId}/stage/${stageName.replace(/_/g, "-")}`;
   }
 
+  private renderUsageSummary(usage: UsageBreakdown): TemplateResult {
+    return html`
+      <div class="hero-grid">
+        ${this.renderUsageMetric("Input tokens", usage.total.inputTokens)}
+        ${this.renderUsageMetric("Output tokens", usage.total.outputTokens)}
+        ${this.renderUsageMetric("Total tokens", usage.total.totalTokens)}
+        <div class="metric">
+          <span>Total cost</span>
+          <strong>${this.formatCurrency(usage.total.totalCost)}</strong>
+        </div>
+      </div>
+      <div class="usage-pills">
+        ${this.renderUsagePill("Text", usage.text)} ${this.renderUsagePill("Audio", usage.audio)}
+        ${this.renderUsagePill("Image", usage.image)}
+      </div>
+    `;
+  }
+
+  private renderUsageMetric(label: string, value: number): TemplateResult {
+    return html`
+      <div class="metric">
+        <span>${label}</span>
+        <strong>${this.formatNumber(value)}</strong>
+      </div>
+    `;
+  }
+
+  private renderUsagePill(label: string, usage: UsageSummary): TemplateResult {
+    return html`
+      <span class="pill">
+        ${label}: ${this.formatNumber(usage.totalTokens)} tokens, ${this.formatCurrency(usage.totalCost)}
+      </span>
+    `;
+  }
+
   private resolveActiveVersion(artifact: ArtifactSummary): ArtifactVersion | null {
     const versions = this.job?.artifactVersions[artifact.key] ?? [];
     return versions.find((version) => version.id === artifact.activeVersionId) ?? null;
@@ -671,6 +721,19 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = totalSeconds % 60;
     return `${minutes}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  private formatCurrency(value: number): string {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: "USD",
+      minimumFractionDigits: value > 0 && value < 0.01 ? 4 : 2,
+      maximumFractionDigits: 6,
+    }).format(value);
+  }
+
+  private formatNumber(value: number): string {
+    return new Intl.NumberFormat().format(value);
   }
 
   private handleEditorInput(artifactKey: string, event: Event): void {

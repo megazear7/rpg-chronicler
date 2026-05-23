@@ -1,11 +1,12 @@
 import z from "zod";
 import { ModelConfigs, ModelTypeConfig } from "./type.model.js";
-import { Cost, Usage } from "./type.prompt.js";
+import { Cost, Usage, UsageBreakdown } from "./type.prompt.js";
 import { InstructionConfig } from "./type.instructions.js";
 import { ContentfulSubmissionSelection } from "./type.contentful-context.js";
 
 export const AppConfig = z.object({
   model: ModelConfigs,
+  usage: UsageBreakdown,
   instructions: InstructionConfig.optional(),
   submissionDefaults: ContentfulSubmissionSelection.optional(),
   latestSubmission: ContentfulSubmissionSelection.optional(),
@@ -33,6 +34,14 @@ export const AppConfigPartial = AppConfig.partial().extend({
           usage: Usage.partial().optional(),
         })
         .optional(),
+    })
+    .optional(),
+  usage: UsageBreakdown.partial()
+    .extend({
+      text: UsageBreakdown.shape.text.partial().optional(),
+      audio: UsageBreakdown.shape.audio.partial().optional(),
+      image: UsageBreakdown.shape.image.partial().optional(),
+      total: UsageBreakdown.shape.total.partial().optional(),
     })
     .optional(),
   instructions: InstructionConfig.partial()

@@ -9,6 +9,10 @@ export const routes = [
     path: "/",
   },
   {
+    name: RouteName.enum.usage,
+    path: "/usage",
+  },
+  {
     name: RouteName.enum.adventure_setup,
     path: "/adventure-setup",
   },

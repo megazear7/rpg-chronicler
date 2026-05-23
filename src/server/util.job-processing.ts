@@ -33,6 +33,7 @@ import { buildInstructionText, normalizeInstructionConfig } from "../shared/util
 import { buildSubmissionContextText } from "./util.contentful.js";
 import { generateImageFromPrompt } from "./util.image.js";
 import { ONE_HOUR_IN_MS } from "../shared/util.time.js";
+import { recordModelUsage } from "./util.usage.js";
 
 const NO_INSTRUCTIONS = "NO_INSTRUCTIONS";
 const WORDS_PER_MINUTE_OF_AUDIO = 4;
@@ -366,7 +367,7 @@ async function resolveImagePrompts(jobId: string, job: JobIndex, story: string):
   }
 
   await updateStage(jobId, "image_prompt", "running", 10, "Generating three image prompts for key story beats.");
-  const content = await sendTextMessage(NO_INSTRUCTIONS, buildImagePromptSetPrompt(story));
+  const content = await sendTextMessage(NO_INSTRUCTIONS, buildImagePromptSetPrompt(story), jobId, "image_prompt");
   const prompts = parseImagePrompts(content);
   await saveArtifactVersion(jobId, "imagePrompt", formatImagePromptArtifact(prompts), "generated");
   await updateJob(jobId, (current) => ({
@@ -402,7 +403,10 @@ async function generateImageCandidates(jobId: string, job: JobIndex, prompts: Jo
 
   for (let index = 0; index < prompts.length; index += 1) {
     const prompt = prompts[index];
-    const { buffer, mimeType } = await generateImageFromPrompt(prompt.prompt);
+    const { buffer, mimeType } = await generateImageFromPrompt(prompt.prompt, {
+      jobId,
+      stageName: "image_generation",
+    });
     const asset = await saveGeneratedImageAsset(jobId, prompt.id, prompt.prompt, buffer, mimeType, "generated");
     const progress = Math.round(((index + 1) / prompts.length) * 100);
     await updateStage(
@@ -455,13 +459,18 @@ async function generateTextArtifact(
   }
 
   await updateStage(jobId, stageName, "running", 10, `Generating ${artifactKey}.`);
-  const content = await sendTextMessage(instructions, prompt);
+  const content = await sendTextMessage(instructions, prompt, jobId, stageName);
   await saveArtifactVersion(jobId, artifactKey, content, "generated");
   await updateStage(jobId, stageName, "completed", 100, `${artifactKey} generated.`);
   return content;
 }
 
-async function sendTextMessage(instructions: string, prompt: string): Promise<string> {
+async function sendTextMessage(
+  instructions: string,
+  prompt: string,
+  jobId?: string,
+  stageName?: JobStageName,
+): Promise<string> {
   const appConfig = await getAppConfig();
   const messages: ChatCompletionMessageParam[] = [];
 
@@ -477,7 +486,7 @@ async function sendTextMessage(instructions: string, prompt: string): Promise<st
     content: prompt,
   });
 
-  const result = await getTextCompletion<string>(messages, appConfig.model);
+  const result = await getTextCompletion<string>(messages, appConfig.model, undefined, { jobId, stageName });
   return result.completion;
 }
 
@@ -720,7 +729,7 @@ async function synthesizeBulletPointOutputs(
     return validateBulletPointOutput(partOutputs[0], durationSeconds).normalizedText;
   }
 
-  const combined = await sendTextMessage(instructions, buildSynthesisPrompt(partOutputs));
+  const combined = await sendTextMessage(instructions, buildSynthesisPrompt(partOutputs), jobId, "bullet_points");
   try {
     return validateBulletPointOutput(combined, durationSeconds).normalizedText;
   } catch (error) {
@@ -745,7 +754,12 @@ async function reformatBulletPointOutput(
   output: string,
   durationSeconds: number,
 ): Promise<string> {
-  const reformatted = await sendTextMessage(NO_INSTRUCTIONS, buildBulletPointReformatPrompt(output, durationSeconds));
+  const reformatted = await sendTextMessage(
+    NO_INSTRUCTIONS,
+    buildBulletPointReformatPrompt(output, durationSeconds),
+    jobId,
+    "bullet_points",
+  );
   await appendJobLog(
     jobId,
     "info",
@@ -888,6 +902,17 @@ async function sendAudioMessage(
 
   try {
     const response = await client.chat.completions.create(input);
+
+    await recordModelUsage({
+      modelKind: "audio",
+      modelConfigs: appConfig.model,
+      usage: response.usage ?? {
+        prompt_tokens: 0,
+        completion_tokens: 0,
+      },
+      jobId,
+      stageName: "bullet_points",
+    });
 
     await writePromptDebugEntry(debugFile, {
       timestamp,

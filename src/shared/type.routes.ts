@@ -5,6 +5,7 @@ export type RoutePath = z.infer<typeof RoutePath>;
 
 export const RouteName = z.enum([
   "home",
+  "usage",
   "adventure_setup",
   "instructions",
   "jobs",

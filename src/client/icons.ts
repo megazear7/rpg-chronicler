@@ -211,6 +211,20 @@ export const infoIcon = html`
   </svg>
 `;
 
+export const kebabIcon = html`
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    width="24"
+    height="24"
+    fill="currentColor"
+    aria-hidden="true">
+    <circle cx="12" cy="5" r="1.8" />
+    <circle cx="12" cy="12" r="1.8" />
+    <circle cx="12" cy="19" r="1.8" />
+  </svg>
+`;
+
 export const circleIcon = html`
   <svg
     xmlns="http://www.w3.org/2000/svg"

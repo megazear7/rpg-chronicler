@@ -3,6 +3,7 @@ import { customElement, state } from "lit/decorators.js";
 import { parseRouteParams } from "../shared/util.route-params.js";
 import { getJobService } from "../shared/service.get-job.js";
 import { streamJobService } from "../shared/service.stream-job.js";
+import { regenerateBulletPointOutputService } from "../shared/service.regenerate-bullet-point-output.js";
 import {
   ArtifactDetail,
   JobArtifactOutput,
@@ -42,6 +43,7 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
   private params = parseRouteParams("/jobs/:jobId/stage/:stageSlug", window.location.pathname);
   @state() private job: JobDetail | null = null;
   @state() private editors: Record<string, string> = {};
+  @state() private regeneratingOutputs: Record<string, boolean> = {};
   @state() private copyState: "idle" | "copied" | "error" = "idle";
   private eventSource: EventSource | null = null;
 
@@ -540,6 +542,7 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
   }
 
   private renderArtifactOutput(output: JobArtifactOutput): TemplateResult {
+    const isRegenerating = this.regeneratingOutputs[output.id] ?? false;
     return html`
       <article class="version-item">
         <div class="version-header">
@@ -547,6 +550,9 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
             <span class="pill">${output.label}</span>
           </div>
           <div class="editor-actions">
+            <button class="secondary" ?disabled=${isRegenerating} @click=${() => this.handleRegenerateOutput(output)}>
+              ${refreshIcon} ${isRegenerating ? "Regenerating..." : "Regenerate"}
+            </button>
             <button class="secondary icon-button" @click=${() => this.handleCopy(output.text)} title="Copy this output">
               ${copyIcon}
             </button>
@@ -698,6 +704,28 @@ export class RpgChroniclerJobStagePage extends RpgChroniclerAppProvider {
     } catch {
       this.copyState = "error";
       dispatch(this, WarningEvent("Unable to copy to clipboard."));
+    }
+  }
+
+  private async handleRegenerateOutput(output: JobArtifactOutput): Promise<void> {
+    this.regeneratingOutputs = {
+      ...this.regeneratingOutputs,
+      [output.id]: true,
+    };
+
+    try {
+      this.job = await regenerateBulletPointOutputService.fetch({
+        jobId: this.params.jobId,
+        outputId: output.id,
+      });
+      dispatch(this, SuccessEvent(`${output.label} regenerated.`));
+    } catch (error) {
+      dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to regenerate output."));
+    } finally {
+      this.regeneratingOutputs = {
+        ...this.regeneratingOutputs,
+        [output.id]: false,
+      };
     }
   }
 

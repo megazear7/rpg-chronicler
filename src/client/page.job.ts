@@ -21,6 +21,7 @@ import { RpgChroniclerAppProvider } from "./provider.app.js";
 import "./component.tooltip.js";
 import { copyIcon, detailsIcon, leftArrowIcon, refreshIcon, rightArrowIcon, xIcon } from "./icons.js";
 import { restartJobService } from "../shared/service.restart-job.js";
+import { restartJobStageService } from "../shared/service.restart-job-stage.js";
 import { dispatch } from "./util.events.js";
 import { SuccessEvent } from "./event.success.js";
 import { WarningEvent } from "./event.warning.js";
@@ -78,6 +79,7 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
   @state() private savingSongFields: Partial<Record<ArtifactKey, boolean>> = {};
   @state() private savingContentfulFields: Partial<Record<ArtifactKey, boolean>> = {};
   @state() private restarting = false;
+  @state() private restartingStageName: JobStageName | null = null;
   @state() private updatingArchiveState = false;
   @state() private updatingProcessingState = false;
   @state() private sendingToNotion = false;
@@ -853,8 +855,21 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
   }
 
   private renderStage(stage: JobStage): TemplateResult {
+    const canForceRestart = stage.kind === "ai";
+    const isRestarting = this.restartingStageName === stage.name;
     return html`
-      <article class=${`stage-card ${stage.status}`}>${this.renderStageSummary(stage, true)}</article>
+      <article class=${`stage-card ${stage.status}`}>
+        ${this.renderStageSummary(stage, true)}
+        ${canForceRestart
+          ? html`
+              <div class="version-actions">
+                <button ?disabled=${isRestarting} @click=${() => this.handleForceRestartStage(stage.name)}>
+                  ${refreshIcon} ${isRestarting ? "Restarting..." : "Force restart"}
+                </button>
+              </div>
+            `
+          : html``}
+      </article>
     `;
   }
 
@@ -1539,6 +1554,18 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
       dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to update job processing state."));
     } finally {
       this.updatingProcessingState = false;
+    }
+  };
+
+  private handleForceRestartStage = async (stageName: JobStageName): Promise<void> => {
+    this.restartingStageName = stageName;
+    try {
+      this.job = await restartJobStageService.fetch({ jobId: this.params.jobId, stageName });
+      dispatch(this, SuccessEvent(`${stageName} force restarted.`));
+    } catch (error) {
+      dispatch(this, WarningEvent(error instanceof Error ? error.message : "Unable to force restart the stage."));
+    } finally {
+      this.restartingStageName = null;
     }
   };
 

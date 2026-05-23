@@ -116,7 +116,8 @@ export class RpgChroniclerJobPage extends RpgChroniclerAppProvider {
         background: color-mix(in srgb, var(--color-secondary-surface) 88%, black);
         border-radius: 26px;
         padding: var(--size-medium);
-        display: grid;
+        display: flex;
+        flex-direction: column;
         gap: var(--size-medium);
         box-shadow: var(--shadow-normal);
       }

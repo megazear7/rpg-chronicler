@@ -24,6 +24,7 @@ import { sendJobToContentfulController } from "./controller.send-job-to-contentf
 import { sendJobToNotionController } from "./controller.send-job-to-notion.js";
 import { registerJobImages } from "./controller.job-images.js";
 import { registerJobAudio } from "./controller.job-audio.js";
+import { regenerateBulletPointOutputController } from "./controller.regenerate-bullet-point-output.js";
 import { restartJobController } from "./controller.restart-job.js";
 
 const router = express.Router();
@@ -51,6 +52,7 @@ selectJobSongController.register(router);
 sendJobToContentfulController.register(router);
 sendJobToNotionController.register(router);
 restartJobController.register(router);
+regenerateBulletPointOutputController.register(router);
 registerJobImages(router);
 registerJobAudio(router);
 registerJobStreams(router);

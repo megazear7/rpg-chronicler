@@ -91,8 +91,16 @@ export async function restartFailedJobProcessing(jobId: string): Promise<void> {
     throw new Error("This job cannot be restarted from its current failed stage.");
   }
 
-  await resetJobForRestart(jobId, failedStage);
-  await appendJobLog(jobId, "info", failedStage, `Restarting processing from ${failedStage}.`);
+  await forceRestartJobProcessing(jobId, failedStage);
+}
+
+export async function forceRestartJobProcessing(jobId: string, restartStage: JobStageName): Promise<void> {
+  if (!RESTARTABLE_STAGE_ORDER.includes(restartStage)) {
+    throw new Error(`The ${restartStage} stage cannot be force restarted.`);
+  }
+
+  await resetJobForRestart(jobId, restartStage);
+  await appendJobLog(jobId, "warning", restartStage, `Force restarting processing from ${restartStage}.`);
   queueJobProcessing(jobId, await resolveOriginalSourcePath(jobId));
 }
 

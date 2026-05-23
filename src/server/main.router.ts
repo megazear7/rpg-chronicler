@@ -26,6 +26,7 @@ import { registerJobImages } from "./controller.job-images.js";
 import { registerJobAudio } from "./controller.job-audio.js";
 import { regenerateBulletPointOutputController } from "./controller.regenerate-bullet-point-output.js";
 import { restartJobController } from "./controller.restart-job.js";
+import { restartJobStageController } from "./controller.restart-job-stage.js";
 import { archiveJobController } from "./controller.archive-job.js";
 import { restoreJobController } from "./controller.restore-job.js";
 
@@ -54,6 +55,7 @@ selectJobSongController.register(router);
 sendJobToContentfulController.register(router);
 sendJobToNotionController.register(router);
 restartJobController.register(router);
+restartJobStageController.register(router);
 archiveJobController.register(router);
 restoreJobController.register(router);
 regenerateBulletPointOutputController.register(router);

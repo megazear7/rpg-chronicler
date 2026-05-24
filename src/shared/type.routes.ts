@@ -8,6 +8,7 @@ export const RouteName = z.enum([
   "usage",
   "adventure_setup",
   "instructions",
+  "app_settings",
   "jobs",
   "job",
   "job_stage",

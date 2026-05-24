@@ -46,36 +46,12 @@ import { buildSubmissionContextText } from "./util.contentful.js";
 import { generateImageFromPrompt } from "./util.image.js";
 import { ONE_HOUR_IN_MS } from "../shared/util.time.js";
 import { recordModelUsage } from "./util.usage.js";
+import { AppSettings } from "../shared/type.app-settings.js";
 
 const NO_INSTRUCTIONS = "NO_INSTRUCTIONS";
-const WORDS_PER_MINUTE_OF_AUDIO = 4;
-const MINIMUM_WORDS = 300;
-const MAXIMUM_WORDS = 2000;
-const MAX_DIRECT_AUDIO_SECONDS = 45 * 60;
-const IMAGE_CANDIDATES_PER_PROMPT = 3;
 const PROMPT_DEBUG_DIR = "data/prompt";
 
 const DEFAULT_INSTRUCTIONS = buildInstructionText(InstructionConfig.parse(DEFAULT_INSTRUCTION_CONFIG));
-
-const DEFAULT_SONG_EXAMPLE = `Epic orchestral ballad, classical symphony, no percussion, no guitars, no modern/pop elements.
-
-Male baritone lead (deep and theatrical British accent, think James Earl Jones meets Alan Rickman, or Howard Shore's LOTR soloists).
-Large SATB choir: grave, soaring harmonies-powerful yet mournful.
-Instrumentation: Full orchestra- deep cellos, violins, haunting strings, majestic pipe organ.
-
-Speaking parts are given on some lines and should be spoken with a different voice as described.`;
-
-const SONG_MODIFIERS = [
-  "Slow and melodic without souring too high.",
-  "Bard singing in a tavern.",
-  "Incorporate folk instruments like acoustic guitar and violin.",
-  "Evoke a sense of adventure and wonder.",
-  "Orchestral background.",
-  "Warm and inviting vocal tone.",
-  "Storytelling style with a clear narrative.",
-  "Use of minor chords to create a melancholic atmosphere.",
-  "Incorporate natural sounds like birdsong or flowing water.",
-];
 
 const ACCEPTED_AUDIO_TYPES = new Set(["audio/mpeg", "audio/mp4", "audio/x-m4a", "audio/mp4a-latm"]);
 const ACCEPTED_AUDIO_EXTENSIONS = new Set([".mp3", ".m4a"]);
@@ -196,13 +172,16 @@ async function runJobProcessing(jobId: string, sourcePath: string, processingRun
   );
   const { processedFilePath } = await ensurePreparedAudio(jobId, sourcePath, currentJob, processingRunId);
 
+  const appConfig = await getAppConfig().catch(() => null);
+  const settings = AppSettings.parse(appConfig?.settings ?? {});
+
   await assertJobCanContinue(jobId, processingRunId);
-  const baseLength = await determineBaseLength(processedFilePath);
+  const baseLength = await determineBaseLength(processedFilePath, settings);
   await appendJobLog(jobId, "info", "prepare_audio", `Estimated ${baseLength} words for downstream generation.`);
   const instructions = await resolveJobInstructions(jobId);
   const bulletPointInstructions = await resolveBulletPointInstructions(jobId);
-  const songExample = DEFAULT_SONG_EXAMPLE;
-  const songMod = SONG_MODIFIERS[Math.floor(Math.random() * SONG_MODIFIERS.length)];
+  const songExample = settings.defaultSongExample;
+  const songMod = settings.songModifiers[Math.floor(Math.random() * settings.songModifiers.length)];
 
   const bulletPoints = await resolveBulletPoints(
     jobId,
@@ -210,6 +189,7 @@ async function runJobProcessing(jobId: string, sourcePath: string, processingRun
     processedFilePath,
     bulletPointInstructions,
     processingRunId,
+    settings,
   );
 
   await assertJobCanContinue(jobId, processingRunId);
@@ -265,7 +245,7 @@ async function runJobProcessing(jobId: string, sourcePath: string, processingRun
   await assertJobCanContinue(jobId, processingRunId);
   const imagePrompts = await resolveImagePrompts(jobId, currentJob, story, processingRunId);
   await assertJobCanContinue(jobId, processingRunId);
-  await generateImageCandidates(jobId, currentJob, imagePrompts, processingRunId);
+  await generateImageCandidates(jobId, currentJob, imagePrompts, processingRunId, settings);
   await assertJobCanContinue(jobId, processingRunId);
   const lyrics = await generateTextArtifact(
     currentJob,
@@ -385,6 +365,7 @@ async function resolveBulletPoints(
   processedFilePath: string,
   instructions: string,
   processingRunId: string,
+  settings: AppSettings,
 ): Promise<string> {
   await assertJobCanContinue(jobId, processingRunId);
   if (hasCompletedStage(job, "bullet_points")) {
@@ -397,7 +378,7 @@ async function resolveBulletPoints(
   }
 
   await updateStage(jobId, "bullet_points", "running", 5, "Listening to audio.");
-  const bulletPoints = await createBulletPoints(jobId, processedFilePath, instructions, processingRunId);
+  const bulletPoints = await createBulletPoints(jobId, processedFilePath, instructions, processingRunId, settings);
   await assertJobCanContinue(jobId, processingRunId);
   await saveArtifactVersion(jobId, "bulletPoints", bulletPoints, "generated");
   await updateStage(jobId, "bullet_points", "completed", 100, "Bullet points generated.");
@@ -533,13 +514,15 @@ async function generateImageCandidates(
   job: JobIndex,
   prompts: JobImagePrompt[],
   processingRunId: string,
+  settings: AppSettings,
 ): Promise<void> {
   await assertJobCanContinue(jobId, processingRunId);
   if (
     hasCompletedStage(job, "image_generation") &&
     prompts.every(
       (prompt) =>
-        job.image.generatedAssets.filter((asset) => asset.promptId === prompt.id).length >= IMAGE_CANDIDATES_PER_PROMPT,
+        job.image.generatedAssets.filter((asset) => asset.promptId === prompt.id).length >=
+        settings.imageCandidatesPerPrompt,
     )
   ) {
     await appendJobLog(jobId, "info", "image_generation", "Reusing previously generated image candidates.");
@@ -554,13 +537,13 @@ async function generateImageCandidates(
       prompts,
     },
   }));
-  const totalImages = prompts.length * IMAGE_CANDIDATES_PER_PROMPT;
+  const totalImages = prompts.length * settings.imageCandidatesPerPrompt;
   await updateStage(jobId, "image_generation", "running", 5, `Generating ${totalImages} image candidates.`);
 
   let generatedCount = 0;
   for (let promptIndex = 0; promptIndex < prompts.length; promptIndex += 1) {
     const prompt = prompts[promptIndex];
-    for (let candidateIndex = 0; candidateIndex < IMAGE_CANDIDATES_PER_PROMPT; candidateIndex += 1) {
+    for (let candidateIndex = 0; candidateIndex < settings.imageCandidatesPerPrompt; candidateIndex += 1) {
       await assertJobCanContinue(jobId, processingRunId);
       const { buffer, mimeType } = await generateImageFromPrompt(prompt.prompt, {
         jobId,
@@ -575,13 +558,13 @@ async function generateImageCandidates(
         "image_generation",
         "running",
         progress,
-        `Generated image ${candidateIndex + 1} of ${IMAGE_CANDIDATES_PER_PROMPT} for ${prompt.storyPart}.`,
+        `Generated image ${candidateIndex + 1} of ${settings.imageCandidatesPerPrompt} for ${prompt.storyPart}.`,
       );
       await appendJobLog(
         jobId,
         "success",
         "image_generation",
-        `Image candidate ${asset.fileName} is ready for ${prompt.storyPart} (${candidateIndex + 1} of ${IMAGE_CANDIDATES_PER_PROMPT}).`,
+        `Image candidate ${asset.fileName} is ready for ${prompt.storyPart} (${candidateIndex + 1} of ${settings.imageCandidatesPerPrompt}).`,
       );
     }
   }
@@ -667,6 +650,7 @@ async function createBulletPoints(
   audioFilePath: string,
   instructions: string,
   processingRunId: string,
+  settings: AppSettings,
 ): Promise<string> {
   await assertJobCanContinue(jobId, processingRunId);
   const duration = await getAudioDuration(audioFilePath);
@@ -677,7 +661,7 @@ async function createBulletPoints(
   await fs.mkdir(audioPartsDir, { recursive: true });
   await fs.mkdir(bulletPointOutputsDir, { recursive: true });
 
-  if (duration <= MAX_DIRECT_AUDIO_SECONDS) {
+  if (duration <= settings.maxDirectAudioSeconds) {
     await updateStage(jobId, "bullet_points", "running", 50, "Using direct audio processing.");
     await appendJobLog(jobId, "info", "bullet_points", "Audio is within direct processing limits.");
     const existingOutput = await readArtifactOutput(jobId, "bulletPoints", "part-001");
@@ -695,15 +679,15 @@ async function createBulletPoints(
     return output;
   }
 
-  const parts = Math.ceil(duration / MAX_DIRECT_AUDIO_SECONDS);
+  const parts = Math.ceil(duration / settings.maxDirectAudioSeconds);
   const partOutputs: string[] = [];
   await appendJobLog(jobId, "warning", "bullet_points", `Splitting audio into ${parts} parts for processing.`);
 
   for (let index = 0; index < parts; index += 1) {
     await assertJobCanContinue(jobId, processingRunId);
     const partNumber = index + 1;
-    const startTime = index * MAX_DIRECT_AUDIO_SECONDS;
-    const partDuration = Math.min(MAX_DIRECT_AUDIO_SECONDS, duration - startTime);
+    const startTime = index * settings.maxDirectAudioSeconds;
+    const partDuration = Math.min(settings.maxDirectAudioSeconds, duration - startTime);
     const partName = `part-${String(partNumber).padStart(3, "0")}.mp3`;
     const partPath = path.join(audioPartsDir, partName);
     const outputId = `part-${String(partNumber).padStart(3, "0")}`;
@@ -751,11 +735,14 @@ export async function regenerateBulletPointOutput(jobId: string, outputId: strin
     throw new Error(`Bullet point output ${outputId} was not found.`);
   }
 
+  const appConfig = await getAppConfig().catch(() => null);
+  const settings = AppSettings.parse(appConfig?.settings ?? {});
+
   const instructions = await resolveBulletPointInstructions(jobId);
   await updateStage(jobId, "bullet_points", "running", 90, `Regenerating ${existingOutput.label}.`);
   await appendJobLog(jobId, "info", "bullet_points", `Regenerating ${existingOutput.label}.`);
 
-  const { audioFilePath, durationSeconds } = await resolveBulletPointOutputSegment(jobId, outputId);
+  const { audioFilePath, durationSeconds } = await resolveBulletPointOutputSegment(jobId, outputId, settings);
   const regeneratedOutput = await generateBulletPointSegmentOutput(
     jobId,
     audioFilePath,
@@ -765,7 +752,7 @@ export async function regenerateBulletPointOutput(jobId: string, outputId: strin
   );
   await saveArtifactOutput(jobId, "bulletPoints", outputId, existingOutput.label, regeneratedOutput);
 
-  const outputs = await listValidatedBulletPointOutputs(jobId);
+  const outputs = await listValidatedBulletPointOutputs(jobId, settings);
   const processedFilePath = path.join(getJobSourceDir(jobId), "processed.mp3");
   const combinedBulletPoints = await synthesizeBulletPointOutputs(
     jobId,
@@ -785,6 +772,7 @@ export async function regenerateBulletPointOutput(jobId: string, outputId: strin
 async function resolveBulletPointOutputSegment(
   jobId: string,
   outputId: string,
+  settings: AppSettings,
 ): Promise<{ audioFilePath: string; durationSeconds: number }> {
   const match = /^part-(\d+)$/.exec(outputId);
   if (!match) {
@@ -796,7 +784,7 @@ async function resolveBulletPointOutputSegment(
   const splitPartPath = path.join(getJobAudioPartsDir(jobId), `${outputId}.mp3`);
   const duration = await getAudioDuration(processedFilePath);
 
-  if (duration <= MAX_DIRECT_AUDIO_SECONDS) {
+  if (duration <= settings.maxDirectAudioSeconds) {
     if (partNumber !== 1) {
       throw new Error(`Audio is short enough for direct processing. ${outputId} is not a valid part.`);
     }
@@ -806,13 +794,13 @@ async function resolveBulletPointOutputSegment(
     };
   }
 
-  const parts = Math.ceil(duration / MAX_DIRECT_AUDIO_SECONDS);
+  const parts = Math.ceil(duration / settings.maxDirectAudioSeconds);
   if (partNumber < 1 || partNumber > parts) {
     throw new Error(`${outputId} is out of range for this job.`);
   }
 
-  const startTime = (partNumber - 1) * MAX_DIRECT_AUDIO_SECONDS;
-  const partDuration = Math.min(MAX_DIRECT_AUDIO_SECONDS, duration - startTime);
+  const startTime = (partNumber - 1) * settings.maxDirectAudioSeconds;
+  const partDuration = Math.min(settings.maxDirectAudioSeconds, duration - startTime);
 
   try {
     await fs.access(splitPartPath);
@@ -838,7 +826,7 @@ function getReusableBulletPointOutput(text: string, durationSeconds: number): st
   }
 }
 
-async function listValidatedBulletPointOutputs(jobId: string): Promise<string[]> {
+async function listValidatedBulletPointOutputs(jobId: string, settings: AppSettings): Promise<string[]> {
   const outputs = await listArtifactOutputs(jobId, "bulletPoints");
   if (outputs.length === 0) {
     throw new Error("No bullet point outputs are available.");
@@ -846,7 +834,7 @@ async function listValidatedBulletPointOutputs(jobId: string): Promise<string[]>
 
   const validatedOutputs: string[] = [];
   for (const output of outputs) {
-    const { durationSeconds } = await resolveBulletPointOutputSegment(jobId, output.id);
+    const { durationSeconds } = await resolveBulletPointOutputSegment(jobId, output.id, settings);
     try {
       validatedOutputs.push(validateBulletPointOutput(output.text, durationSeconds).normalizedText);
     } catch (error) {
@@ -1253,14 +1241,14 @@ async function prepareAudioFile(
   return { processedFilePath, processedFileName };
 }
 
-async function determineBaseLength(audioFilePath: string): Promise<number> {
+async function determineBaseLength(audioFilePath: string, settings: AppSettings): Promise<number> {
   const audioLengthInMinutes = Math.ceil((await getAudioDuration(audioFilePath)) / 60);
-  const baseLength = audioLengthInMinutes * WORDS_PER_MINUTE_OF_AUDIO;
-  if (baseLength < MINIMUM_WORDS) {
-    return MINIMUM_WORDS;
+  const baseLength = audioLengthInMinutes * settings.wordsPerMinuteOfAudio;
+  if (baseLength < settings.minimumWords) {
+    return settings.minimumWords;
   }
-  if (baseLength > MAXIMUM_WORDS) {
-    return MAXIMUM_WORDS;
+  if (baseLength > settings.maximumWords) {
+    return settings.maximumWords;
   }
   return baseLength;
 }

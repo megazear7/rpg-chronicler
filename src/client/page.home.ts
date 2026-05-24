@@ -426,6 +426,7 @@ export class RpgChroniclerHomePage extends RpgChroniclerAppProvider {
         <nav class="bottom-nav">
           <a href="/usage">View usage</a>
           <a href="/instructions">Configure workflow defaults</a>
+          <a href="/app-settings">App settings</a>
           <a href="/jobs">Browse all jobs ${rightArrowIcon}</a>
         </nav>
       </main>

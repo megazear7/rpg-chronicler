@@ -5,6 +5,7 @@ import { RouteError } from "./main.errors.js";
 import { normalizeInstructionConfig } from "../shared/util.instructions.js";
 import { normalizeSubmissionSelection } from "../shared/util.contentful-context.js";
 import { usageBreakdownFromModelConfigs } from "../shared/util.usage.js";
+import { AppSettings } from "../shared/type.app-settings.js";
 
 const DEFAULT_MODEL_CONFIG = {
   text: {
@@ -85,6 +86,7 @@ export const getAppConfig = async (): Promise<AppConfig> => {
     instructions: normalizeInstructionConfig(json.instructions),
     submissionDefaults: normalizeSubmissionSelection(json.submissionDefaults),
     latestSubmission: normalizeSubmissionSelection(json.latestSubmission ?? json.submissionDefaults),
+    settings: AppSettings.parse(json.settings ?? {}),
   });
 };
 
@@ -98,6 +100,7 @@ export const saveAppConfig = async (app: AppConfig): Promise<void> => {
     instructions: normalizeInstructionConfig(app.instructions),
     submissionDefaults: normalizeSubmissionSelection(app.submissionDefaults),
     latestSubmission: normalizeSubmissionSelection(app.latestSubmission ?? app.submissionDefaults),
+    settings: AppSettings.parse(app.settings ?? {}),
   });
   await fs.writeFile(path, JSON.stringify(normalized, null, 2), "utf-8");
 };

@@ -21,6 +21,10 @@ export const routes = [
     path: "/instructions",
   },
   {
+    name: RouteName.enum.app_settings,
+    path: "/app-settings",
+  },
+  {
     name: RouteName.enum.jobs,
     path: "/jobs",
   },

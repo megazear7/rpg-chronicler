@@ -14,6 +14,7 @@ import "./page.home.js";
 import "./page.usage.js";
 import "./page.adventure-setup.js";
 import "./page.instructions.js";
+import "./page.app-settings.js";
 import "./page.jobs.js";
 import "./page.job.js";
 import "./page.job-stage.js";
@@ -98,6 +99,11 @@ export class RpgChroniclerApp extends LitElement {
               return html`
                 <div class="app-bar"></div>
                 <rpg-chronicler-instructions-page></rpg-chronicler-instructions-page>
+              `;
+            case RouteName.enum.app_settings:
+              return html`
+                <div class="app-bar"></div>
+                <rpg-chronicler-app-settings-page></rpg-chronicler-app-settings-page>
               `;
             case RouteName.enum.jobs:
               return html`

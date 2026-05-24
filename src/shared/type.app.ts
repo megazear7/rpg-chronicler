@@ -3,6 +3,7 @@ import { ModelConfigs, ModelTypeConfig } from "./type.model.js";
 import { Cost, Usage, UsageBreakdown } from "./type.prompt.js";
 import { InstructionConfig } from "./type.instructions.js";
 import { ContentfulSubmissionSelection } from "./type.contentful-context.js";
+import { AppSettings } from "./type.app-settings.js";
 
 export const AppConfig = z.object({
   model: ModelConfigs,
@@ -10,6 +11,7 @@ export const AppConfig = z.object({
   instructions: InstructionConfig.optional(),
   submissionDefaults: ContentfulSubmissionSelection.optional(),
   latestSubmission: ContentfulSubmissionSelection.optional(),
+  settings: AppSettings.optional(),
 });
 export type AppConfig = z.infer<typeof AppConfig>;
 
@@ -54,5 +56,6 @@ export const AppConfigPartial = AppConfig.partial().extend({
     .optional(),
   submissionDefaults: ContentfulSubmissionSelection.partial().optional(),
   latestSubmission: ContentfulSubmissionSelection.partial().optional(),
+  settings: AppSettings.partial().optional(),
 });
 export type AppConfigPartial = z.infer<typeof AppConfigPartial>;

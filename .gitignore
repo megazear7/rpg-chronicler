@@ -1,4 +1,5 @@
 node_modules
+session-output/
 .DS_Store
 dist
 .env

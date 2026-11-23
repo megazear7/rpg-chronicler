@@ -5,8 +5,11 @@ import { ask, closeAsk } from "./util.ask.js";
 import { ModelTypeOption } from "./type.cli.js";
 import { promises as fs } from "fs";
 import { createEnvFile } from "./util.create-env-file.js";
+import { addSessionCommand, handleInterpretation } from "./command.session.js";
+import { CLI_VERSION } from "./version.js";
 
 const program = new Command();
+program.name("rpg-chronicler").description("RPG Chronicler command line tools.").version(CLI_VERSION);
 
 program
   .command("init")
@@ -86,4 +89,13 @@ program
     await closeAsk();
   });
 
-program.parse(process.argv);
+addSessionCommand(program, process.argv, {
+  loadEnv: true,
+  env: () => process.env,
+  onInterpretation: handleInterpretation,
+});
+
+program.parseAsync(process.argv).catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exitCode = 1;
+});

@@ -1,6 +1,14 @@
 import z from "zod";
 
-export const SESSION_PRESET_IDS = ["transcript", "play-by-play", "summary", "dm-notes", "story", "comic"] as const;
+export const SESSION_PRESET_IDS = [
+  "transcript",
+  "play-by-play",
+  "summary",
+  "dm-notes",
+  "story",
+  "comic",
+  "chronicle",
+] as const;
 
 export const SessionPresetId = z.enum(SESSION_PRESET_IDS);
 export type SessionPresetId = z.infer<typeof SessionPresetId>;
@@ -55,6 +63,8 @@ export const SessionSpeakerPromptInput = z.object({
   cast: SessionCast,
   chunkLabel: z.string().min(1),
   previousTail: z.string().optional(),
+  presetId: SessionPresetId.optional(),
+  instructions: z.string().min(1).optional(),
 });
 export type SessionSpeakerPromptInput = z.infer<typeof SessionSpeakerPromptInput>;
 

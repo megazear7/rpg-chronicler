@@ -6,6 +6,8 @@ export interface SessionPresetDefinition {
   summary: string;
   instructions: string;
   combineInstructions: string;
+  /** "audio" means gpt-realtime follows these instructions while it listens. "text" is written afterward. */
+  delivery: "audio" | "text";
 }
 
 const combineDefault =
@@ -16,6 +18,7 @@ export const sessionPresets = {
     id: "transcript",
     title: "Transcript",
     summary: "A readable transcript that names the DM and each player, including character and NPC voices.",
+    delivery: "text",
     instructions: `Produce a readable transcript of this tabletop RPG session with speaker attribution.
 Keep the words that were said. Lightly add punctuation so it can be read.
 Attribute every turn to the person who said it, using the cast names.
@@ -33,6 +36,7 @@ Do not add a title, preamble, or closing note.`,
     title: "Play-by-play",
     summary:
       "A chronological account of what the people at the table did, in player names rather than character names.",
+    delivery: "text",
     instructions: `Write a chronological play-by-play of what the people at the table did.
 Refer to real player and DM names, not character names, except when a character name is needed to explain what that person did in the game.
 Use short sentences and simple language a game master can scan later.
@@ -46,6 +50,7 @@ Do not add a preamble.`,
     id: "summary",
     title: "Session summary",
     summary: "A few paragraphs for a campaign log: how the session started, the turning points, and how it ended.",
+    delivery: "text",
     instructions: `Write a session summary a campaign log can keep.
 Use a few short paragraphs. Open with how the session started, then the turning points, then how it ended.
 Use player names for what the people did and character names for what happened in the world.
@@ -58,6 +63,7 @@ Do not add a preamble or a title.`,
     id: "dm-notes",
     title: "DM notes",
     summary: "Notes the DM needs next session: NPCs, loot, promises, open hooks, and where the party stopped.",
+    delivery: "text",
     instructions: `Write notes the DM can use to prepare the next session.
 Cover NPCs who appeared, changed, or died; loot, debts, and promises; facts the party learned; hooks that are still open; and anything the DM still needs to track.
 Describe the party's location and situation at the end in enough detail to pick the scene back up.
@@ -70,6 +76,7 @@ Do not add a preamble.`,
     id: "story",
     title: "Story",
     summary: "Narrative prose of what happened in the game world, using character names and no table talk.",
+    delivery: "text",
     instructions: `Write a narrative story of what happened in the game world.
 Use character names, not the players' real names. Treat the DM's narration and NPC dialogue as the world, and treat player dialogue as the words and choices of their characters.
 Write prose paragraphs. Do not mention dice, rules, table talk, or that this was a game.
@@ -83,6 +90,7 @@ Do not add a title or a preamble.`,
     title: "Comic script",
     summary:
       "A Knights of the Dinner Table style comic script about this group at the table, not a straight retelling of the plot.",
+    delivery: "text",
     instructions: `Write a comic script in the spirit of Knights of the Dinner Table: a gag comic about this group at the table, not a straight adaptation of the fantasy plot.
 The characters are the DM and players, drawn as ordinary people with dice, minis, snacks, and rulebooks. Use their real names.
 In-world events belong in caption boxes and in the DM's narration. The humor comes from how the group reacts: rules arguments, bad rolls, spotlight stealing, and running jokes.
@@ -99,7 +107,30 @@ Do not add a preamble before PAGE 1.`,
     combineInstructions:
       "Combine the partial comic scripts into one script. Renumber pages and panels from the start. Keep the jokes that are in the drafts. Do not add new scenes.",
   },
+  chronicle: {
+    id: "chronicle",
+    title: "Chronicle",
+    summary:
+      "A listening-time chronicle of who said what, rolls and rulings, names, story beats, and funny table moments.",
+    delivery: "audio",
+    instructions: `Listen to this clip and write a chronicle of the tabletop session as you hear it.
+Use the DM and player names, and their aliases, to attribute every line to the right person.
+Mark in-character speech separately from table talk.
+Mark DM narration separately from NPC voices the DM performs.
+Note dice rolls, rules calls, and the outcomes of those calls.
+Capture NPCs, places, items, and loot by the names used in the session.
+Flag key story beats, decisions, jokes, and memorable funny moments at the table, because those moments are useful for a Knights of the Dinner Table style comic.
+Keep the chronicle in chronological order, and start each entry with a rough timestamp from the start of this clip.
+When the audio is unclear, say plainly that it is unclear instead of guessing.
+Do not add a title or a preamble.`,
+    combineInstructions:
+      "Chronicle clips are already written by the audio model. Keep them in order and do not add events.",
+  },
 } satisfies Record<SessionPresetId, SessionPresetDefinition>;
+
+export function isListeningPreset(id: SessionPresetId): boolean {
+  return sessionPresets[id].delivery === "audio";
+}
 
 export function getSessionPreset(id: SessionPresetId): SessionPresetDefinition {
   return sessionPresets[id];

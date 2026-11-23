@@ -1,4 +1,5 @@
 import { SessionCast, SessionPresetId, TableName } from "./type.session.js";
+import { isListeningPreset } from "./util.session-presets.js";
 
 /**
  * Exact OpenAI model id for GPT Realtime 2.1.
@@ -33,7 +34,7 @@ export const SESSION_AUDIO_EXTENSIONS = [
 ] as const;
 
 export const SESSION_TASK_RULE =
-  "Pass --preset, --instructions, or both. One of them is required. A preset selects the task. --instructions can be used instead of a preset, or added on top of one. When both are set, the preset stays the task and the extra instructions refine it. If they conflict, follow the extra instructions as long as the preset's format still holds.";
+  "Pass --preset, --instructions, or both. One of them is required. A preset selects the task. --instructions can be used instead of a preset, or added on top of one. When both are set, the preset stays the task and the extra instructions refine it. If they conflict, follow the extra instructions as long as the preset's format still holds. The chronicle preset, and any --instructions, are followed by the audio model while it listens. The other presets are written by the text model after that.";
 
 export class SessionCliError extends Error {
   constructor(message: string) {
@@ -236,6 +237,9 @@ export function taskWritesNamedTranscriptDirectly(
   presetId: SessionPresetId | undefined,
   instructions: string | undefined,
 ): boolean {
+  if (presetId && isListeningPreset(presetId)) {
+    return true;
+  }
   return presetId === "transcript" && !instructions;
 }
 

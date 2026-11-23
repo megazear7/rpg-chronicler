@@ -2,7 +2,7 @@ import type { ChatCompletionMessageParam } from "openai/resources";
 import { SessionRunConfig } from "../shared/type.session.js";
 import { sessionPrompt } from "../shared/prompt.session.js";
 import { sessionSpeakerPrompt } from "../shared/prompt.session-speakers.js";
-import { getSessionPreset } from "../shared/util.session-presets.js";
+import { getSessionPreset, isListeningPreset } from "../shared/util.session-presets.js";
 import {
   describeChunk,
   formatBytes,
@@ -43,11 +43,14 @@ export async function buildDryRunReport(input: DryRunReportInput): Promise<{ ok:
     cast: input.request.cast,
     chunkLabel: "a dry-run placeholder clip",
     previousTail: undefined,
+    presetId: input.request.presetId,
+    instructions: input.request.instructions,
   });
+  const listening = input.request.presetId ? isListeningPreset(input.request.presetId) : false;
   const direct = taskWritesNamedTranscriptDirectly(input.request.presetId, input.request.instructions);
   const placeholder = dryRunPlaceholderTranscript(input.request);
   const taskMessages =
-    input.request.presetId || input.request.instructions
+    !listening && (input.request.presetId || input.request.instructions)
       ? await sessionPrompt({
           mode: "produce",
           cast: input.request.cast,
@@ -76,9 +79,11 @@ export async function buildDryRunReport(input: DryRunReportInput): Promise<{ ok:
     `  Preset: ${preset ? `${preset.id} — ${preset.summary}` : "(none)"}`,
     `  Extra instructions: ${input.request.instructions ?? "(none)"}`,
     `  ${SESSION_TASK_RULE}`,
-    direct
-      ? "  The transcript preset with no extra instructions writes the named transcript and does not call the text model."
-      : "  The text model runs after the audio model, using the named transcript.",
+    listening
+      ? "  This preset is followed by the audio model while it listens. The text model is not called."
+      : direct
+        ? "  The transcript preset with no extra instructions writes the named transcript and does not call the text model."
+        : "  The text model runs after the audio model, using the named transcript.",
     "",
     "Models",
     `  Audio: ${input.request.audioModel}`,
@@ -97,9 +102,11 @@ export async function buildDryRunReport(input: DryRunReportInput): Promise<{ ok:
     renderMessages(speakerMessages),
     "",
     "Task prompt",
-    direct
-      ? "Assembled below for review. It is not sent when the preset is transcript and there are no extra instructions."
-      : "Sent to the text model after the named transcript is ready. The transcript below is a placeholder.",
+    listening
+      ? "Not sent. The audio model writes this result while it listens. The preset text is in the Realtime instructions above."
+      : direct
+        ? "Assembled below for review. It is not sent when the preset is transcript and there are no extra instructions."
+        : "Sent to the text model after the named transcript is ready. The transcript below is a placeholder.",
     "",
     renderMessages(taskMessages),
   ];

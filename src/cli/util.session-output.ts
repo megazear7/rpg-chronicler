@@ -1,5 +1,6 @@
 import path from "node:path";
 import { SessionPresetId } from "../shared/type.session.js";
+import { isListeningPreset } from "../shared/util.session-presets.js";
 import { DEFAULT_OUTPUT_DIRECTORY, taskWritesNamedTranscriptDirectly } from "../shared/util.session.js";
 
 export interface SessionOutputPlan {
@@ -28,7 +29,8 @@ export function planSessionOutput(input: {
     const folder =
       input.output && input.output !== "-" ? input.output.replace(/[/\\]+$/u, "") : DEFAULT_OUTPUT_DIRECTORY;
     if (direct) {
-      return { kind: "directory", directory: folder, transcriptPath: path.join(folder, "transcript.md") };
+      const fileName = input.presetId && isListeningPreset(input.presetId) ? `${input.presetId}.md` : "transcript.md";
+      return { kind: "directory", directory: folder, transcriptPath: path.join(folder, fileName) };
     }
     return {
       kind: "directory",

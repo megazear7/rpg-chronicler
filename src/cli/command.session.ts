@@ -5,7 +5,7 @@ import {
   SessionRunConfig,
   TextReasoningEffort,
 } from "../shared/type.session.js";
-import { formatSessionPresetList } from "../shared/util.session-presets.js";
+import { formatSessionPresetList, getSessionPreset } from "../shared/util.session-presets.js";
 import {
   castCollisionError,
   DEFAULT_AUDIO_MODEL,
@@ -75,6 +75,8 @@ Audio:
   ffmpeg converts it to 24 kHz mono PCM. Long recordings are split with --chunk-minutes (default ${DEFAULT_CHUNK_MINUTES}).
   Override the model with --audio-model or OPENAI_AUDIO_MODEL. The text step uses ${DEFAULT_TEXT_MODEL} unless you set --text-model or OPENAI_TEXT_MODEL.
   The API key is read from OPENAI_API_KEY in the environment or the env file. It is never stored in the output.
+  chronicle — ${getSessionPreset("chronicle").summary}
+  --instructions are sent to the audio model while it listens. The chronicle preset uses that same listening path.
 
 Examples:
   rpg-chronicler session session.mp3 --dm Alex --player-1 Sam --player-1-alias Elara --preset transcript

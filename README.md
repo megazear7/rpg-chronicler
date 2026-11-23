@@ -69,20 +69,25 @@ GPT Realtime 2.1 (`gpt-realtime-2.1`) is only available on the Realtime API. The
 
 Recordings longer than `--chunk-minutes` (default 10) are split into separate Realtime sessions so one response can hold the transcript. The model id is set in `src/shared/util.session.ts` as `DEFAULT_AUDIO_MODEL`. Override it with `--audio-model` or `OPENAI_AUDIO_MODEL`.
 
-The preset or `--instructions` step runs afterward on the named transcript, using `gpt-6.2-sol` (`DEFAULT_TEXT_MODEL` in the same file, override with `--text-model` or `OPENAI_TEXT_MODEL`). That model is not a stand-in for the audio step. `gpt-realtime-2.1` does not support chat completions, and the writing step no longer needs the audio. If the preset is `transcript` and you do not pass `--instructions`, the Realtime transcript is the result and the text model is not called.
+`--instructions` are sent to `gpt-realtime-2.1` while it listens. The `chronicle` preset is a canned instruction set on that same listening path, and the model's reply is the result. The other presets are still written afterward by `gpt-6.2-sol` (`DEFAULT_TEXT_MODEL` in the same file, override with `--text-model` or `OPENAI_TEXT_MODEL`). That text model is not a stand-in for the audio step. If the preset is `transcript` and you do not pass `--instructions`, the Realtime transcript is the result and the text model is not called.
 
 ### Instructions and presets
 
-Pass `--preset`, `--instructions`, or both. One of them is required. A preset selects the task. `--instructions` can be the whole task, or extra guidance on top of a preset. When both are set and they conflict, the extra instructions win as long as the preset's format still holds.
+Pass `--preset`, `--instructions`, or both. One of them is required. A preset selects the task. `--instructions` can be the whole task, or extra guidance on top of a preset. When both are set and they conflict, the extra instructions win as long as the preset's format still holds. `--instructions` always go to the audio model while it listens. `chronicle` is the preset that uses only that listening path.
 
-| Preset | What it writes |
-| --- | --- |
-| `transcript` | Speaker-attributed transcript, with character and NPC voices marked. |
-| `play-by-play` | What the people at the table did, in player names. |
-| `summary` | A few campaign-log paragraphs. |
-| `dm-notes` | What the DM needs next session. |
-| `story` | In-world prose, without table talk. |
-| `comic` | A Knights of the Dinner Table style comic script about this group. |
+```sh
+npm run session -- recording.mp3 --dm Alex --player-1 Sam --player-1-alias Elara --preset chronicle
+```
+
+| Preset         | What it writes                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `transcript`   | Speaker-attributed transcript, with character and NPC voices marked.                                                                  |
+| `play-by-play` | What the people at the table did, in player names.                                                                                    |
+| `summary`      | A few campaign-log paragraphs.                                                                                                        |
+| `dm-notes`     | What the DM needs next session.                                                                                                       |
+| `story`        | In-world prose, without table talk.                                                                                                   |
+| `comic`        | A Knights of the Dinner Table style comic script about this group.                                                                    |
+| `chronicle`    | Listening-time chronicle of speakers, rolls, names, story beats, and funny table moments. The audio model writes it while it listens. |
 
 Add a preset by extending `SessionPresetId` in `src/shared/type.session.ts` and adding a matching entry in `src/shared/util.session-presets.ts`.
 
@@ -92,27 +97,27 @@ npm run session -- --list-presets
 
 ### Flags
 
-| Flag | Meaning |
-| --- | --- |
-| audio paths | One or more recordings, in playback order. |
-| `--dm <name>` | DM first name or table name. No spaces and no last name. |
-| `--dm-alias <a,b,c>` | Other names for the DM, or NPC voices the DM performs. |
-| `--player-N <name>` | Player N. Start at 1 and do not skip numbers. |
-| `--player-N-alias <a,b,c>` | Aliases for that player, usually character names. |
-| `--instructions <text>` | Free-text task or extra guidance. |
-| `--preset <name>` | One of the presets above. |
-| `--list-presets` | Print the presets and exit. |
-| `-o, --output <path>` | File, directory, or `-` for stdout. Default: `session-output/`. |
-| `--dry-run` | Print the plan and prompts. No network call. |
-| `-h, --help` | Usage and examples. |
-| `-V, --version` | CLI version. |
-| `--audio-model <id>` | Realtime model. Default: `gpt-realtime-2.1`. |
+| Flag                               | Meaning                                                                |
+| ---------------------------------- | ---------------------------------------------------------------------- |
+| audio paths                        | One or more recordings, in playback order.                             |
+| `--dm <name>`                      | DM first name or table name. No spaces and no last name.               |
+| `--dm-alias <a,b,c>`               | Other names for the DM, or NPC voices the DM performs.                 |
+| `--player-N <name>`                | Player N. Start at 1 and do not skip numbers.                          |
+| `--player-N-alias <a,b,c>`         | Aliases for that player, usually character names.                      |
+| `--instructions <text>`            | Free-text task or extra guidance.                                      |
+| `--preset <name>`                  | One of the presets above.                                              |
+| `--list-presets`                   | Print the presets and exit.                                            |
+| `-o, --output <path>`              | File, directory, or `-` for stdout. Default: `session-output/`.        |
+| `--dry-run`                        | Print the plan and prompts. No network call.                           |
+| `-h, --help`                       | Usage and examples.                                                    |
+| `-V, --version`                    | CLI version.                                                           |
+| `--audio-model <id>`               | Realtime model. Default: `gpt-realtime-2.1`.                           |
 | `--audio-reasoning-effort <level>` | `minimal`, `low`, `medium`, `high`, `xhigh`, or `off`. Default: `low`. |
-| `--text-model <id>` | Text model. Default: `gpt-6.2-sol`. |
-| `--reasoning-effort <level>` | `low`, `medium`, `high`, `xhigh`, `max`, or `off`. Default: `medium`. |
-| `--chunk-minutes <minutes>` | Realtime clip length. `0` sends the whole file. Default: `10`. |
-| `--base-url <url>` | API base URL. Default: `https://api.openai.com/v1`. |
-| `--env-file <path>` | Env file. Default: `.env`. |
+| `--text-model <id>`                | Text model. Default: `gpt-6.2-sol`.                                    |
+| `--reasoning-effort <level>`       | `low`, `medium`, `high`, `xhigh`, `max`, or `off`. Default: `medium`.  |
+| `--chunk-minutes <minutes>`        | Realtime clip length. `0` sends the whole file. Default: `10`.         |
+| `--base-url <url>`                 | API base URL. Default: `https://api.openai.com/v1`.                    |
+| `--env-file <path>`                | Env file. Default: `.env`.                                             |
 
 A directory receives `named-transcript.md` and a file named for the preset. A transcript preset with no extra instructions writes `transcript.md` only. A file path receives the final document.
 

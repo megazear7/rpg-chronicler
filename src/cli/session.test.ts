@@ -210,6 +210,8 @@ test("help and preset listing describe the command", async () => {
       assert.match(help.text, new RegExp(flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     }
     assert.match(help.text, /preset selects the task/i);
+    assert.match(help.text, /chronicle/);
+    assert.match(help.text, new RegExp(sessionPresets.chronicle.summary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
 
   const version = await parseSessionArgv(["--version"]);
@@ -271,6 +273,26 @@ test("prompts keep the cast, the preset, and extra instructions together", async
   const instructionsText = instructionsOnly.map((message) => message.content).join("\n");
   assert.match(instructionsText, /List only the loot/);
   assert.doesNotMatch(instructionsText, /PAGE 1/);
+
+  const chronicle = await sessionSpeakerPrompt({
+    cast,
+    chunkLabel: "chunk 1 of 1, 0:00 to 10:00",
+    presetId: "chronicle",
+    instructions: "Also note who brought snacks.",
+  });
+  const chronicleText = chronicle.map((message) => String(message.content)).join("\n");
+  assert.match(chronicleText, /attribute every line to the right person/);
+  assert.match(chronicleText, /in-character speech separately from table talk/);
+  assert.match(chronicleText, /DM narration separately from NPC voices/);
+  assert.match(chronicleText, /dice rolls, rules calls, and the outcomes/);
+  assert.match(chronicleText, /NPCs, places, items, and loot/);
+  assert.match(chronicleText, /memorable funny moments at the table/);
+  assert.match(chronicleText, /rough timestamp/);
+  assert.match(chronicleText, /say plainly that it is unclear/);
+  assert.match(chronicleText, /Also note who brought snacks/);
+  assert.match(chronicleText, /Alex/);
+  assert.match(chronicleText, /Elara/);
+  assert.doesNotMatch(chronicleText, /Write a speaker-attributed transcript of this clip only/);
 });
 
 test("chunk planning and the dry-run report stay offline", async () => {
@@ -297,11 +319,47 @@ test("chunk planning and the dry-run report stay offline", async () => {
   assert.match(report.text, /wss:\/\/api\.openai\.com\/v1\/realtime\?model=gpt-realtime-2\.1/);
   assert.match(report.text, /No audio was uploaded/);
   assert.match(report.text, /Mention the snack pile/);
+  assert.match(report.text.split("Task prompt")[0] ?? "", /Mention the snack pile/);
   assert.doesNotMatch(report.text, /sk-/);
   assert.equal(
     realtimeWebSocketUrl("https://api.openai.com/v1", DEFAULT_AUDIO_MODEL),
     "https://api.openai.com/v1/realtime?model=gpt-realtime-2.1".replace("https://", "wss://"),
   );
+
+  const chronicleRun = await parseSessionArgv([
+    "session.mp3",
+    "--dm",
+    "Alex",
+    "--dm-alias",
+    "GM",
+    "--player-1",
+    "Sam",
+    "--player-1-alias",
+    "Elara",
+    "--preset",
+    "chronicle",
+    "--instructions",
+    "Also note who brought snacks.",
+    "--dry-run",
+  ]);
+  assert.equal(chronicleRun.type, "run");
+  if (chronicleRun.type !== "run") {
+    return;
+  }
+  const chronicleReport = await buildDryRunReport({
+    request: chronicleRun.request,
+    files: [{ path: "session.mp3", sizeBytes: 2048, durationSeconds: 90, probeError: null }],
+    apiKey: "missing",
+    outputIsDirectory: false,
+  });
+  const realtimeSection = chronicleReport.text.split("Task prompt")[0] ?? "";
+  assert.match(realtimeSection, /gpt-realtime-2\.1/);
+  assert.match(realtimeSection, /attribute every line to the right person/);
+  assert.match(realtimeSection, /say plainly that it is unclear/);
+  assert.match(realtimeSection, /Also note who brought snacks/);
+  assert.match(chronicleReport.text, /followed by the audio model while it listens/);
+  assert.match(chronicleReport.text, /The text model is not called/);
+  assert.match(chronicleReport.text, /Not sent/);
 });
 
 test("output paths follow the preset", () => {
@@ -327,6 +385,15 @@ test("output paths follow the preset", () => {
     planSessionOutput({ output: "-", presetId: "story", instructions: undefined, outputIsDirectory: false }).kind,
     "stdout",
   );
+
+  const chronicleOutput = planSessionOutput({
+    output: undefined,
+    presetId: "chronicle",
+    instructions: "Also note who brought snacks.",
+    outputIsDirectory: false,
+  });
+  assert.equal(chronicleOutput.resultPath, undefined);
+  assert.match(chronicleOutput.transcriptPath ?? "", /chronicle\.md$/);
 });
 
 test("audio paths are checked without a network call", async () => {

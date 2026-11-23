@@ -82,6 +82,8 @@ export async function runSessionCli(request: SessionRunConfig): Promise<void> {
         chunk,
         chunkCount: chunks.length,
         cast: request.cast,
+        presetId: request.presetId,
+        instructions: request.instructions,
         previousTranscript,
         log,
       });

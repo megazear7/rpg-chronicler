@@ -2,7 +2,7 @@ import OpenAI from "openai";
 import { OpenAIRealtimeWS } from "openai/realtime/ws";
 import type { ResponseDoneEvent, SessionUpdateEvent } from "openai/resources/realtime/realtime.js";
 import { sessionSpeakerInstructions, sessionSpeakerPrompt } from "../shared/prompt.session-speakers.js";
-import type { AudioReasoningEffort, SessionCast } from "../shared/type.session.js";
+import type { AudioReasoningEffort, SessionCast, SessionPresetId } from "../shared/type.session.js";
 import {
   describeChunk,
   PlannedChunk,
@@ -22,6 +22,8 @@ export interface RealtimeChunkRequest {
   chunk: PlannedChunk;
   chunkCount: number;
   cast: SessionCast;
+  presetId?: SessionPresetId;
+  instructions?: string;
   previousTranscript: string;
   log: (message: string) => void;
 }
@@ -62,6 +64,8 @@ async function transcribeChunkOnce(request: RealtimeChunkRequest): Promise<Realt
     cast: request.cast,
     chunkLabel: label,
     previousTail: transcriptTail(request.previousTranscript, SPEAKER_TAIL_LINES) || undefined,
+    presetId: request.presetId,
+    instructions: request.instructions,
   });
   const instructions = sessionSpeakerInstructions(messages);
   const client = new OpenAI({

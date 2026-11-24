@@ -22,6 +22,7 @@ export interface RealtimeChunkRequest {
   chunk: PlannedChunk;
   chunkCount: number;
   cast: SessionCast;
+  names: string[];
   presetId?: SessionPresetId;
   instructions?: string;
   previousTranscript: string;
@@ -62,6 +63,7 @@ async function transcribeChunkOnce(request: RealtimeChunkRequest): Promise<Realt
   const label = describeChunk(request.chunk, request.chunkCount);
   const messages = await sessionSpeakerPrompt({
     cast: request.cast,
+    names: request.names,
     chunkLabel: label,
     previousTail: transcriptTail(request.previousTranscript, SPEAKER_TAIL_LINES) || undefined,
     presetId: request.presetId,

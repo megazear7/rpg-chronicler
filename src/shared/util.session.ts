@@ -1,5 +1,5 @@
 import { SessionCast, SessionPresetId, TableName } from "./type.session.js";
-import { isListeningPreset } from "./util.session-presets.js";
+import { isListeningPreset, LOW_CONFIDENCE_HEADING, LOW_CONFIDENCE_MARKER } from "./util.session-presets.js";
 
 /**
  * Exact OpenAI model id for GPT Realtime 2.1.
@@ -60,6 +60,20 @@ export function tableNameError(name: string, label: string): string | undefined 
     return `${label} may use letters, numbers, apostrophes, and hyphens only, up to 40 characters. Received "${trimmed}".`;
   }
   return undefined;
+}
+
+export function parseDetail(value: string | undefined, label: string): { value: string } | { error: string } {
+  const trimmed = value?.trim() ?? "";
+  if (trimmed.length === 0) {
+    return { error: `${label} is required.` };
+  }
+  if (trimmed.length > 80) {
+    return { error: `${label} is longer than 80 characters.` };
+  }
+  if (/[\r\n]/u.test(trimmed)) {
+    return { error: `${label} must be a single line.` };
+  }
+  return { value: trimmed };
 }
 
 export function parseAliasList(value: string | undefined, label: string): { aliases: string[] } | { error: string } {
@@ -125,6 +139,18 @@ export function castCollisionError(cast: SessionCast): string | undefined {
         return aliasError;
       }
     }
+    const characterName = player.character.name;
+    const characterKey = characterName.toLocaleLowerCase();
+    if (player.name.toLocaleLowerCase() === characterKey) {
+      return `"${characterName}" is both ${player.name}'s table name and character name. Use a different character name.`;
+    }
+    const matchesOwnAlias = player.aliases.some((alias) => alias.toLocaleLowerCase() === characterKey);
+    if (!matchesOwnAlias) {
+      const characterError = consider(`${player.name}'s character`, characterName);
+      if (characterError) {
+        return characterError;
+      }
+    }
   }
   return undefined;
 }
@@ -133,11 +159,53 @@ export function formatCast(cast: SessionCast): string {
   const dmAliases = cast.dm.aliases.length > 0 ? ` (aliases: ${cast.dm.aliases.join(", ")})` : "";
   const players = cast.players
     .map((player, index) => {
-      const aliases = player.aliases.length > 0 ? ` (aliases: ${player.aliases.join(", ")})` : "";
-      return `Player ${index + 1}: ${player.name}${aliases}`;
+      const aliases = player.aliases.length > 0 ? ` Aliases: ${player.aliases.join(", ")}.` : "";
+      const { name, race, className } = player.character;
+      const character = ` Character: ${name} (${race} ${className}). In-character lines use "${player.name} (${name}):".`;
+      return `Player ${index + 1}: ${player.name}.${aliases}${character}`;
     })
     .join("\n");
   return `DM: ${cast.dm.name}${dmAliases}\n${players}`;
+}
+
+export function formatProperNouns(names: readonly string[]): string {
+  if (names.length === 0) {
+    return "";
+  }
+  return `Proper nouns to spell exactly as written (places, NPCs, items, factions, spells): ${names.join(", ")}.`;
+}
+
+export function withLowConfidenceSection(text: string): string {
+  const tagged: string[] = [];
+  const seen = new Set<string>();
+  for (const line of text.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.includes(LOW_CONFIDENCE_MARKER) || seen.has(trimmed)) {
+      continue;
+    }
+    seen.add(trimmed);
+    tagged.push(trimmed);
+  }
+  const listing = tagged.length > 0 ? tagged.join("\n") : "None.";
+  return `${stripLowConfidenceSections(text).trim()}\n\n${LOW_CONFIDENCE_HEADING}\n\n${listing}\n`;
+}
+
+function stripLowConfidenceSections(text: string): string {
+  const kept: string[] = [];
+  let skipping = false;
+  for (const line of text.split("\n")) {
+    if (line.trim() === LOW_CONFIDENCE_HEADING) {
+      skipping = true;
+      continue;
+    }
+    if (skipping && /^#{1,6} /u.test(line.trim())) {
+      skipping = false;
+    }
+    if (!skipping) {
+      kept.push(line);
+    }
+  }
+  return kept.join("\n");
 }
 
 export function formatTimestamp(totalSeconds: number): string {
@@ -291,6 +359,7 @@ export function renderSessionMarkdown(input: {
   title: string;
   sourcePaths: string[];
   cast: SessionCast;
+  names?: readonly string[];
   presetId?: SessionPresetId;
   instructions?: string;
   audioModel: string;
@@ -300,11 +369,13 @@ export function renderSessionMarkdown(input: {
   const castLines = formatCast(input.cast)
     .split("\n")
     .map((line) => (line.startsWith("- ") ? line : `- ${line}`));
+  const nameLine = input.names && input.names.length > 0 ? [`- Names: ${input.names.join(", ")}`] : ["- Names: (none)"];
   const lines = [
     `# ${input.title}`,
     "",
     `- Sources: ${input.sourcePaths.join(", ")}`,
     ...castLines,
+    ...nameLine,
     `- Preset: ${input.presetId ?? "(none)"}`,
     `- Extra instructions: ${input.instructions ?? "(none)"}`,
     `- Audio model: ${input.audioModel}`,

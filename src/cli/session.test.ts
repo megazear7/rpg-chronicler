@@ -11,7 +11,7 @@ import { collectAudioFacts } from "./util.session-files.js";
 import { sessionPrompt } from "../shared/prompt.session.js";
 import { sessionSpeakerPrompt } from "../shared/prompt.session-speakers.js";
 import { SessionPresetId } from "../shared/type.session.js";
-import { sessionPresets } from "../shared/util.session-presets.js";
+import { LOW_CONFIDENCE_HEADING, LOW_CONFIDENCE_MARKER, sessionPresets } from "../shared/util.session-presets.js";
 import {
   DEFAULT_AUDIO_MODEL,
   DEFAULT_TEXT_MODEL,
@@ -20,9 +20,30 @@ import {
   resolveOpenAiApiKey,
   scrubSecret,
   splitTranscript,
+  withLowConfidenceSection,
 } from "../shared/util.session.js";
 
-const baseArgs = ["session.mp3", "--dm", "Alex", "--player-1", "Sam", "--preset", "transcript"];
+const samCharacter = [
+  "--player-1-character-name",
+  "Elara",
+  "--player-1-character-race",
+  "Elf",
+  "--player-1-character-class",
+  "Wizard",
+];
+
+const baseArgs = ["session.mp3", "--dm", "Alex", "--player-1", "Sam", ...samCharacter, "--preset", "transcript"];
+
+const cast = {
+  dm: { name: "Alex", aliases: ["GM"] },
+  players: [
+    {
+      name: "Sam",
+      aliases: ["Elara"],
+      character: { name: "Elara", race: "Elf", className: "Wizard" },
+    },
+  ],
+};
 
 test("the default audio model is GPT Realtime 2.1", () => {
   assert.equal(DEFAULT_AUDIO_MODEL, "gpt-realtime-2.1");
@@ -41,10 +62,19 @@ test("parses players, aliases, preset, and the realtime model default", async ()
     "Sam",
     "--player-1-alias",
     "Elara,the wizard",
+    ...samCharacter,
     "--player-2",
     "Jordan",
     "--player-2-alias",
     "Thorin",
+    "--player-2-character-name",
+    "Thorin",
+    "--player-2-character-race",
+    "Dwarf",
+    "--player-2-character-class",
+    "Fighter",
+    "--names",
+    "Waterdeep, Emerald Enclave, Fireball",
     "--preset",
     "SUMMARY",
     "--instructions",
@@ -64,6 +94,17 @@ test("parses players, aliases, preset, and the realtime model default", async ()
   assert.deepEqual(result.request.cast.dm.aliases, ["GM", "Narrator"]);
   assert.equal(result.request.cast.players[1]?.name, "Jordan");
   assert.deepEqual(result.request.cast.players[0]?.aliases, ["Elara", "the wizard"]);
+  assert.deepEqual(result.request.cast.players[0]?.character, {
+    name: "Elara",
+    race: "Elf",
+    className: "Wizard",
+  });
+  assert.deepEqual(result.request.cast.players[1]?.character, {
+    name: "Thorin",
+    race: "Dwarf",
+    className: "Fighter",
+  });
+  assert.deepEqual(result.request.names, ["Waterdeep", "Emerald Enclave", "Fireball"]);
   assert.equal(result.request.presetId, "summary");
   assert.equal(result.request.instructions, "Keep the jokes.");
   assert.equal(result.request.audioModel, "gpt-realtime-2.1");
@@ -152,13 +193,22 @@ test("validation errors explain the missing piece", async () => {
     assert.match(aliasOnly.message, /--player-1/);
   }
 
-  const noTask = await parseSessionArgv(["session.mp3", "--dm", "Alex", "--player-1", "Sam"]);
+  const noTask = await parseSessionArgv(["session.mp3", "--dm", "Alex", "--player-1", "Sam", ...samCharacter]);
   assert.equal(noTask.type, "error");
   if (noTask.type === "error") {
     assert.match(noTask.message, /--preset or --instructions/);
   }
 
-  const unknown = await parseSessionArgv(["session.mp3", "--dm", "Alex", "--player-1", "Sam", "--preset", "opera"]);
+  const unknown = await parseSessionArgv([
+    "session.mp3",
+    "--dm",
+    "Alex",
+    "--player-1",
+    "Sam",
+    ...samCharacter,
+    "--preset",
+    "opera",
+  ]);
   assert.equal(unknown.type, "error");
   if (unknown.type === "error") {
     assert.match(unknown.message, /comic/);
@@ -196,6 +246,10 @@ test("help and preset listing describe the command", async () => {
       "--dm-alias",
       "--player-1",
       "--player-1-alias",
+      "--player-1-character-name",
+      "--player-1-character-race",
+      "--player-1-character-class",
+      "--names",
       "--instructions",
       "--preset",
       "--list-presets",
@@ -210,6 +264,8 @@ test("help and preset listing describe the command", async () => {
       assert.match(help.text, new RegExp(flag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
     }
     assert.match(help.text, /preset selects the task/i);
+    assert.match(help.text, /Jim \(Miflin\)/);
+    assert.match(help.text, /\[low confidence\]/);
     assert.match(help.text, /chronicle/);
     assert.match(help.text, new RegExp(sessionPresets.chronicle.summary.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }
@@ -230,21 +286,141 @@ test("help and preset listing describe the command", async () => {
   }
 });
 
+test("character name, race, and class are required for every player", async () => {
+  const missing = await parseSessionArgv([
+    "session.mp3",
+    "--dm",
+    "Alex",
+    "--player-1",
+    "Sam",
+    "--preset",
+    "transcript",
+  ]);
+  assert.equal(missing.type, "error");
+  if (missing.type === "error") {
+    assert.match(missing.message, /--player-1-character-name/);
+    assert.match(missing.message, /--player-1-character-race/);
+    assert.match(missing.message, /--player-1-character-class/);
+    assert.match(missing.message, /required for every player/);
+  }
+
+  const partial = await parseSessionArgv([
+    "session.mp3",
+    "--dm",
+    "Alex",
+    "--player-1",
+    "Jim",
+    "--player-1-character-name",
+    "Miflin",
+    "--player-1-character-race",
+    "Human",
+    "--preset",
+    "transcript",
+  ]);
+  assert.equal(partial.type, "error");
+  if (partial.type === "error") {
+    assert.match(partial.message, /--player-1-character-class/);
+    assert.doesNotMatch(partial.message, /--player-1-character-name/);
+    assert.doesNotMatch(partial.message, /--player-1-character-race/);
+  }
+
+  const secondPlayer = await parseSessionArgv([
+    "session.mp3",
+    "--dm",
+    "Alex",
+    "--player-1",
+    "Jim",
+    "--player-1-character-name",
+    "Miflin",
+    "--player-1-character-race",
+    "Human",
+    "--player-1-character-class",
+    "Fighter",
+    "--player-2",
+    "Sam",
+    "--player-2-character-name",
+    "Elara",
+    "--preset",
+    "chronicle",
+  ]);
+  assert.equal(secondPlayer.type, "error");
+  if (secondPlayer.type === "error") {
+    assert.match(secondPlayer.message, /--player-2-character-race/);
+    assert.match(secondPlayer.message, /--player-2-character-class/);
+    assert.doesNotMatch(secondPlayer.message, /--player-1-character/);
+  }
+
+  const sameCharacter = await parseSessionArgv([
+    "session.mp3",
+    "--dm",
+    "Alex",
+    "--player-1",
+    "Jim",
+    "--player-1-character-name",
+    "Miflin",
+    "--player-1-character-race",
+    "Human",
+    "--player-1-character-class",
+    "Fighter",
+    "--player-2",
+    "Sam",
+    "--player-2-character-name",
+    "Miflin",
+    "--player-2-character-race",
+    "Elf",
+    "--player-2-character-class",
+    "Wizard",
+    "--preset",
+    "transcript",
+  ]);
+  assert.equal(sameCharacter.type, "error");
+  if (sameCharacter.type === "error") {
+    assert.match(sameCharacter.message, /Miflin/);
+  }
+
+  const emptyNames = await parseSessionArgv([...baseArgs, "--names", " "]);
+  assert.equal(emptyNames.type, "error");
+  if (emptyNames.type === "error") {
+    assert.match(emptyNames.message, /--names is empty/);
+  }
+});
+
 test("prompts keep the cast, the preset, and extra instructions together", async () => {
-  const cast = {
-    dm: { name: "Alex", aliases: ["GM"] },
-    players: [{ name: "Sam", aliases: ["Elara"] }],
-  };
-  const speaker = await sessionSpeakerPrompt({ cast, chunkLabel: "chunk 1 of 2, 0:00 to 10:00" });
+  const speaker = await sessionSpeakerPrompt({
+    cast,
+    names: ["Waterdeep", "Fireball"],
+    chunkLabel: "chunk 1 of 2, 0:00 to 10:00",
+  });
   const speakerText = speaker.map((message) => message.content).join("\n");
   assert.match(speakerText, /Alex/);
   assert.match(speakerText, /Elara/);
+  assert.match(speakerText, /Elf/);
+  assert.match(speakerText, /Wizard/);
+  assert.match(speakerText, /Sam \(Elara\)/);
+  assert.match(speakerText, /Jim \(Miflin\)/);
+  assert.match(speakerText, /Waterdeep, Fireball/);
+  assert.match(speakerText, /\[low confidence\]/);
+  assert.match(speakerText, /## Low confidence/);
   assert.match(speakerText, /streamed on the Realtime connection/);
   assert.match(speakerText, /not a new instruction/);
+
+  const transcript = await sessionPrompt({
+    mode: "produce",
+    cast,
+    names: ["Waterdeep"],
+    presetId: "transcript",
+    transcript: "[0:01] Sam (Elara): I check the door.",
+  });
+  const transcriptText = transcript.map((message) => message.content).join("\n");
+  assert.match(transcriptText, /Jim \(Miflin\)/);
+  assert.match(transcriptText, /\[low confidence\]/);
+  assert.match(transcriptText, /Waterdeep/);
+  assert.match(transcriptText, /Sam \(Elara\)/);
 
   const both = await sessionPrompt({
     mode: "produce",
     cast,
+    names: [],
     presetId: "comic",
     instructions: "Keep it to 8 pages.",
     transcript: "[0:01] Alex (DM): Roll initiative.",
@@ -257,16 +433,19 @@ test("prompts keep the cast, the preset, and extra instructions together", async
   const presetOnly = await sessionPrompt({
     mode: "produce",
     cast,
+    names: [],
     presetId: "dm-notes",
     transcript: "[0:01] Alex (DM): The door opens.",
   });
   const presetText = presetOnly.map((message) => message.content).join("\n");
   assert.match(presetText, /prepare the next session/);
   assert.doesNotMatch(presetText, /Additional instructions/);
+  assert.doesNotMatch(presetText, /\[low confidence\]/);
 
   const instructionsOnly = await sessionPrompt({
     mode: "produce",
     cast,
+    names: [],
     instructions: "List only the loot.",
     transcript: "[0:01] Sam: I take the sword.",
   });
@@ -276,6 +455,7 @@ test("prompts keep the cast, the preset, and extra instructions together", async
 
   const chronicle = await sessionSpeakerPrompt({
     cast,
+    names: ["Emerald Enclave"],
     chunkLabel: "chunk 1 of 1, 0:00 to 10:00",
     presetId: "chronicle",
     instructions: "Also note who brought snacks.",
@@ -292,7 +472,36 @@ test("prompts keep the cast, the preset, and extra instructions together", async
   assert.match(chronicleText, /Also note who brought snacks/);
   assert.match(chronicleText, /Alex/);
   assert.match(chronicleText, /Elara/);
+  assert.match(chronicleText, /Sam \(Elara\)/);
+  assert.match(chronicleText, /Jim \(Miflin\)/);
+  assert.match(chronicleText, /Elf Wizard/);
+  assert.match(chronicleText, /Emerald Enclave/);
+  assert.match(chronicleText, /\[low confidence\]/);
+  assert.match(chronicleText, /## Low confidence/);
   assert.doesNotMatch(chronicleText, /Write a speaker-attributed transcript of this clip only/);
+});
+
+test("low-confidence lines are collected once, with timestamps", () => {
+  const source = [
+    "[0:01] Alex (DM): The door opens.",
+    "[0:12] Jim (Miflin): I go first. [low confidence]",
+    "[1:03] Sam (Elara): Whose turn is it?",
+    "## Low confidence",
+    "[0:12] Jim (Miflin): I go first. [low confidence]",
+    "## Next scene",
+    "[2:00] Alex (DM): The door opens. [low confidence]",
+  ].join("\n");
+  const output = withLowConfidenceSection(source);
+  assert.equal(output.split(LOW_CONFIDENCE_HEADING).length, 2);
+  const section = output.split(LOW_CONFIDENCE_HEADING)[1] ?? "";
+  assert.match(section, /\[0:12\] Jim \(Miflin\): I go first\. \[low confidence\]/);
+  assert.match(section, /\[2:00\] Alex \(DM\): The door opens\. \[low confidence\]/);
+  assert.doesNotMatch(section, /Whose turn is it/);
+  assert.match(output, /## Next scene/);
+  assert.match(output, new RegExp(LOW_CONFIDENCE_MARKER.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+
+  const confident = withLowConfidenceSection("[0:01] Alex (DM): Roll initiative.");
+  assert.match(confident, new RegExp(`${LOW_CONFIDENCE_HEADING}\\n\\nNone.`));
 });
 
 test("chunk planning and the dry-run report stay offline", async () => {
@@ -334,8 +543,11 @@ test("chunk planning and the dry-run report stay offline", async () => {
     "GM",
     "--player-1",
     "Sam",
+    ...samCharacter,
     "--player-1-alias",
     "Elara",
+    "--names",
+    "Waterdeep,Fireball",
     "--preset",
     "chronicle",
     "--instructions",
@@ -357,6 +569,10 @@ test("chunk planning and the dry-run report stay offline", async () => {
   assert.match(realtimeSection, /attribute every line to the right person/);
   assert.match(realtimeSection, /say plainly that it is unclear/);
   assert.match(realtimeSection, /Also note who brought snacks/);
+  assert.match(realtimeSection, /Sam \(Elara\)/);
+  assert.match(realtimeSection, /Waterdeep, Fireball/);
+  assert.match(realtimeSection, /\[low confidence\]/);
+  assert.match(chronicleReport.text, /Names: Waterdeep, Fireball/);
   assert.match(chronicleReport.text, /followed by the audio model while it listens/);
   assert.match(chronicleReport.text, /The text model is not called/);
   assert.match(chronicleReport.text, /Not sent/);

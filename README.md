@@ -52,20 +52,20 @@ OPENAI_API_KEY=sk-...
 This is the end-to-end command once `OPENAI_API_KEY` is set and `recording.mp3` is a real session file:
 
 ```sh
-npm run session -- recording.mp3 --dm Alex --player-1 Sam --player-1-alias Elara --preset transcript
+npm run session -- recording.mp3 --dm Alex --player-1 Jim --player-1-character-name Miflin --player-1-character-race Human --player-1-character-class Fighter --preset transcript
 ```
 
-`npm run session` builds the CLI and runs it. Add more files in playback order, and add `--player-2`, `--player-3`, and so on for the rest of the table. The audio step prints `Audio model: gpt-realtime-2.1 (Realtime WebSocket)` and writes `session-output/transcript.md`.
+`npm run session` builds the CLI and runs it. Add more files in playback order, and add `--player-2`, `--player-3`, and so on for the rest of the table. Each player needs a character name, race, and class. The audio step prints `Audio model: gpt-realtime-2.1 (Realtime WebSocket)` and writes `session-output/transcript.md`.
 
 A dry run checks the arguments and prints the prompts without opening a socket:
 
 ```sh
-npm run session -- recording.mp3 --dm Alex --player-1 Sam --preset transcript --dry-run
+npm run session -- recording.mp3 --dm Alex --player-1 Jim --player-1-character-name Miflin --player-1-character-race Human --player-1-character-class Fighter --preset transcript --dry-run
 ```
 
 ### What the audio step does
 
-GPT Realtime 2.1 (`gpt-realtime-2.1`) is only available on the Realtime API. The CLI opens `wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1`, converts each recording with ffmpeg, and streams 24 kHz PCM16 with `input_audio_buffer.append`. Turn detection is off. After the clip is committed, the model answers in text with a speaker-attributed transcript. Names and aliases in the prompt tell it who the DM and players are, including character names and NPC voices.
+GPT Realtime 2.1 (`gpt-realtime-2.1`) is only available on the Realtime API. The CLI opens `wss://api.openai.com/v1/realtime?model=gpt-realtime-2.1`, converts each recording with ffmpeg, and streams 24 kHz PCM16 with `input_audio_buffer.append`. Turn detection is off. After the clip is committed, the model answers in text with a speaker-attributed transcript. The prompt tells it who the DM and players are, which character each player is running (name, race, and class), and any extra proper nouns from `--names`. In-character lines are attributed to the player and the character together, as `Jim (Miflin):`.
 
 Recordings longer than `--chunk-minutes` (default 10) are split into separate Realtime sessions so one response can hold the transcript. The model id is set in `src/shared/util.session.ts` as `DEFAULT_AUDIO_MODEL`. Override it with `--audio-model` or `OPENAI_AUDIO_MODEL`.
 
@@ -76,8 +76,16 @@ Recordings longer than `--chunk-minutes` (default 10) are split into separate Re
 Pass `--preset`, `--instructions`, or both. One of them is required. A preset selects the task. `--instructions` can be the whole task, or extra guidance on top of a preset. When both are set and they conflict, the extra instructions win as long as the preset's format still holds. `--instructions` always go to the audio model while it listens. `chronicle` is the preset that uses only that listening path.
 
 ```sh
-npm run session -- recording.mp3 --dm Alex --player-1 Sam --player-1-alias Elara --preset chronicle
+npm run session -- recording.mp3 --dm Alex --player-1 Jim --player-1-character-name Miflin --player-1-character-race Human --player-1-character-class Fighter --names "Waterdeep,Emerald Enclave,Fireball" --preset chronicle
 ```
+
+### Characters, names, and low confidence
+
+`--player-N-character-name`, `--player-N-character-race`, and `--player-N-character-class` are required for every `--player-N`. If any one of them is missing, the command stops and names the missing flag. Those three fields go into the prompt the audio model hears, so an in-character line can be written `Jim (Miflin):` instead of guessing which player said it.
+
+`--names` is optional. It is a comma-separated list of other proper nouns (places, NPCs, items, factions, spells) that should be spelled the way you wrote them. They are included in the same model context.
+
+When a preset attributes speakers (`transcript` and `chronicle`, and the named transcript the audio model writes for every preset), an uncertain attribution is marked on that line with `[low confidence]`. The model is told to use that tag instead of guessing silently. The finished text ends with a `## Low confidence` section that repeats those lines, including their timestamps. If every line is confident, that section says `None.`
 
 | Preset         | What it writes                                                                                                                        |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -97,27 +105,31 @@ npm run session -- --list-presets
 
 ### Flags
 
-| Flag                               | Meaning                                                                |
-| ---------------------------------- | ---------------------------------------------------------------------- |
-| audio paths                        | One or more recordings, in playback order.                             |
-| `--dm <name>`                      | DM first name or table name. No spaces and no last name.               |
-| `--dm-alias <a,b,c>`               | Other names for the DM, or NPC voices the DM performs.                 |
-| `--player-N <name>`                | Player N. Start at 1 and do not skip numbers.                          |
-| `--player-N-alias <a,b,c>`         | Aliases for that player, usually character names.                      |
-| `--instructions <text>`            | Free-text task or extra guidance.                                      |
-| `--preset <name>`                  | One of the presets above.                                              |
-| `--list-presets`                   | Print the presets and exit.                                            |
-| `-o, --output <path>`              | File, directory, or `-` for stdout. Default: `session-output/`.        |
-| `--dry-run`                        | Print the plan and prompts. No network call.                           |
-| `-h, --help`                       | Usage and examples.                                                    |
-| `-V, --version`                    | CLI version.                                                           |
-| `--audio-model <id>`               | Realtime model. Default: `gpt-realtime-2.1`.                           |
-| `--audio-reasoning-effort <level>` | `minimal`, `low`, `medium`, `high`, `xhigh`, or `off`. Default: `low`. |
-| `--text-model <id>`                | Text model. Default: `gpt-6.2-sol`.                                    |
-| `--reasoning-effort <level>`       | `low`, `medium`, `high`, `xhigh`, `max`, or `off`. Default: `medium`.  |
-| `--chunk-minutes <minutes>`        | Realtime clip length. `0` sends the whole file. Default: `10`.         |
-| `--base-url <url>`                 | API base URL. Default: `https://api.openai.com/v1`.                    |
-| `--env-file <path>`                | Env file. Default: `.env`.                                             |
+| Flag                                 | Meaning                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------ |
+| audio paths                          | One or more recordings, in playback order.                               |
+| `--dm <name>`                        | DM first name or table name. No spaces and no last name.                 |
+| `--dm-alias <a,b,c>`                 | Other names for the DM, or NPC voices the DM performs.                   |
+| `--player-N <name>`                  | Player N. Start at 1 and do not skip numbers.                            |
+| `--player-N-alias <a,b,c>`           | Other names that player uses at the table.                               |
+| `--player-N-character-name <name>`   | That player's character. Required with `--player-N`.                     |
+| `--player-N-character-race <race>`   | That character's race. Required with `--player-N`.                       |
+| `--player-N-character-class <class>` | That character's class. Required with `--player-N`.                      |
+| `--names <a,b,c>`                    | Proper nouns to spell correctly: places, NPCs, items, factions, spells.  |
+| `--instructions <text>`              | Free-text task or extra guidance.                                        |
+| `--preset <name>`                    | One of the presets above.                                                |
+| `--list-presets`                     | Print the presets and exit.                                              |
+| `-o, --output <path>`                | File, directory, or `-` for stdout. Default: `session-output/`.          |
+| `--dry-run`                          | Print the plan and prompts. No network call.                             |
+| `-h, --help`                         | Usage and examples.                                                      |
+| `-V, --version`                      | CLI version.                                                             |
+| `--audio-model <id>`                 | Realtime model. Default: `gpt-realtime-2.1`.                             |
+| `--audio-reasoning-effort <level>`   | `minimal`, `low`, `medium`, `high`, `xhigh`, or `off`. Default: `low`.   |
+| `--text-model <id>`                  | Text model. Default: `gpt-6.2-sol`.                                      |
+| `--reasoning-effort <level>`         | `low`, `medium`, `high`, `xhigh`, `max`, or `off`. Default: `medium`.    |
+| `--chunk-minutes <minutes>`          | Realtime clip length. `0` sends the whole file. Default: `10`.           |
+| `--base-url <url>`                   | API base URL. Default: `https://api.openai.com/v1`.                      |
+| `--env-file <path>`                  | Env file. Default: `.env`.                                               |
 
 A directory receives `named-transcript.md` and a file named for the preset. A transcript preset with no extra instructions writes `transcript.md` only. A file path receives the final document.
 
@@ -129,7 +141,7 @@ A directory receives `named-transcript.md` and a file named for the preset. A tr
 4. Run:
 
 ```sh
-npm run session -- recording.mp3 --dm Alex --player-1 Sam --player-1-alias Elara --preset transcript
+npm run session -- recording.mp3 --dm Alex --player-1 Jim --player-1-character-name Miflin --player-1-character-race Human --player-1-character-class Fighter --preset transcript
 ```
 
 5. Expect `Audio model: gpt-realtime-2.1 (Realtime WebSocket)` on stderr and `session-output/transcript.md` when it finishes.

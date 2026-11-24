@@ -30,11 +30,25 @@ export const Participant = z.object({
 });
 export type Participant = z.infer<typeof Participant>;
 
+export const CharacterDetails = z.object({
+  name: z.string().min(1).max(80),
+  race: z.string().min(1).max(80),
+  className: z.string().min(1).max(80),
+});
+export type CharacterDetails = z.infer<typeof CharacterDetails>;
+
+export const PlayerSeat = Participant.extend({
+  character: CharacterDetails,
+});
+export type PlayerSeat = z.infer<typeof PlayerSeat>;
+
 export const SessionCast = z.object({
   dm: Participant,
-  players: z.array(Participant).min(1),
+  players: z.array(PlayerSeat).min(1),
 });
 export type SessionCast = z.infer<typeof SessionCast>;
+
+const ProperNouns = z.array(z.string().min(1).max(80)).default(() => []);
 
 export const AudioReasoningEffort = z.enum(["minimal", "low", "medium", "high", "xhigh", "off"]);
 export type AudioReasoningEffort = z.infer<typeof AudioReasoningEffort>;
@@ -56,11 +70,13 @@ export const SessionRunConfig = z.object({
   chunkMinutes: z.number().min(0).max(180),
   baseUrl: z.string().url(),
   envFile: z.string().min(1),
+  names: ProperNouns,
 });
 export type SessionRunConfig = z.infer<typeof SessionRunConfig>;
 
 export const SessionSpeakerPromptInput = z.object({
   cast: SessionCast,
+  names: ProperNouns,
   chunkLabel: z.string().min(1),
   previousTail: z.string().optional(),
   presetId: SessionPresetId.optional(),
@@ -77,6 +93,7 @@ export type SessionPromptPart = z.infer<typeof SessionPromptPart>;
 export const SessionProducePromptInput = z.object({
   mode: z.literal("produce"),
   cast: SessionCast,
+  names: ProperNouns,
   presetId: SessionPresetId.optional(),
   instructions: z.string().min(1).optional(),
   transcript: z.string().min(1),
@@ -87,6 +104,7 @@ export type SessionProducePromptInput = z.infer<typeof SessionProducePromptInput
 export const SessionCombinePromptInput = z.object({
   mode: z.literal("combine"),
   cast: SessionCast,
+  names: ProperNouns,
   presetId: SessionPresetId.optional(),
   instructions: z.string().min(1).optional(),
   partials: z.array(z.string().min(1)).min(2),

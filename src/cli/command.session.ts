@@ -16,12 +16,14 @@ import {
   DEFAULT_TEXT_MODEL,
   DEFAULT_TEXT_REASONING_EFFORT,
   parseAliasList,
+  parseDetail,
   resolveModelId,
   resolveOpenAiApiKey,
   SESSION_AUDIO_EXTENSIONS,
   SESSION_TASK_RULE,
   tableNameError,
 } from "../shared/util.session.js";
+import { LOW_CONFIDENCE_HEADING, LOW_CONFIDENCE_MARKER } from "../shared/util.session-presets.js";
 import { loadSessionEnv, publicError, runSessionCli } from "./util.session-run.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -47,12 +49,18 @@ interface SessionCommandOptions {
   chunkMinutes?: string | number;
   baseUrl?: string;
   envFile?: string;
+  names?: string;
 }
 
 interface SeatInput {
   name?: string;
   alias?: string;
+  characterName?: string;
+  characterRace?: string;
+  characterClass?: string;
 }
+
+const PLAYER_FLAG_PATTERN = /^--player-(\d+)(?:-alias|-character-name|-character-race|-character-class)?$/u;
 
 interface SessionCommandHooks {
   loadEnv: boolean;
@@ -65,10 +73,20 @@ Instructions and presets:
   ${SESSION_TASK_RULE}
 
 Players:
-  --player-1 <name> --player-1-alias <a,b,c>
-  --player-2 <name> --player-2-alias <a,b,c>
-  Numbers start at 1 and cannot skip. Aliases are other names used at the table, usually character names.
-  Names are a first name or table name, with no spaces and no last name.
+  --player-1 <name> --player-1-character-name <name> --player-1-character-race <race> --player-1-character-class <class>
+  --player-1-alias <a,b,c>
+  --player-2 <name> and the same character flags for player 2, and so on.
+  Character name, race, and class are required for every --player-N. The command fails if any of the three is missing.
+  In-character lines are written as "Player (Character):", for example "Jim (Miflin):".
+  Aliases are other names used at the table. Player and DM names are a first name or table name, with no spaces and no last name.
+
+Names:
+  --names <a,b,c>
+  Optional comma-separated proper nouns (places, NPCs, items, factions, spells) the audio model should spell correctly.
+
+Low confidence:
+  If the model is not confident the attributed speaker said a line, that line is tagged ${LOW_CONFIDENCE_MARKER}.
+  A "${LOW_CONFIDENCE_HEADING}" section at the end lists those lines with their timestamps.
 
 Audio:
   The audio step streams each recording to ${DEFAULT_AUDIO_MODEL} over the OpenAI Realtime WebSocket.
@@ -79,10 +97,10 @@ Audio:
   --instructions are sent to the audio model while it listens. The chronicle preset uses that same listening path.
 
 Examples:
-  rpg-chronicler session session.mp3 --dm Alex --player-1 Sam --player-1-alias Elara --preset transcript
-  rpg-chronicler session part1.mp3 part2.m4a --dm Alex --dm-alias "GM,Narrator" --player-1 Sam --player-1-alias Elara --player-2 Jordan --player-2-alias Thorin --preset comic --instructions "Keep it to 8 pages." --output ./session-output
+  rpg-chronicler session session.mp3 --dm Alex --player-1 Jim --player-1-character-name Miflin --player-1-character-race Human --player-1-character-class Fighter --names "Waterdeep,Emerald Enclave,Fireball" --preset transcript
+  rpg-chronicler session part1.mp3 part2.m4a --dm Alex --dm-alias "GM,Narrator" --player-1 Sam --player-1-alias Elara --player-1-character-name Elara --player-1-character-race Elf --player-1-character-class Wizard --player-2 Jordan --player-2-character-name Thorin --player-2-character-race Dwarf --player-2-character-class Fighter --preset comic --instructions "Keep it to 8 pages." --output ./session-output
   rpg-chronicler session --list-presets
-  rpg-chronicler session session.mp3 --dm Alex --player-1 Sam --preset summary --dry-run
+  rpg-chronicler session session.mp3 --dm Alex --player-1 Jim --player-1-character-name Miflin --player-1-character-race Human --player-1-character-class Fighter --preset chronicle --dry-run
 
 Supported recordings: ${SESSION_AUDIO_EXTENSIONS.join(", ")}
 `;
@@ -123,6 +141,10 @@ export function addSessionCommand(program: Command, argv: string[], hooks: Sessi
     )
     .option("--base-url <url>", `OpenAI API base URL. Default: ${DEFAULT_BASE_URL}.`)
     .option("--env-file <path>", `Env file to load before reading OPENAI_API_KEY. Default: ${DEFAULT_ENV_FILE}.`)
+    .option(
+      "--names <names>",
+      "Comma-separated proper nouns to spell correctly: places, NPCs, items, factions, and spells.",
+    )
     .version(CLI_VERSION, "-V, --version", "Print the CLI version.")
     .addHelpText("after", HELP_EXAMPLES);
 
@@ -139,6 +161,36 @@ export function addSessionCommand(program: Command, argv: string[], hooks: Sessi
       (value: string) => {
         const seat = collected.get(index) ?? {};
         seat.alias = value;
+        collected.set(index, seat);
+        return value;
+      },
+    );
+    command.option(
+      `--player-${index}-character-name <name>`,
+      `Character name for player ${index}. Required with --player-${index}.`,
+      (value: string) => {
+        const seat = collected.get(index) ?? {};
+        seat.characterName = value;
+        collected.set(index, seat);
+        return value;
+      },
+    );
+    command.option(
+      `--player-${index}-character-race <race>`,
+      `Character race for player ${index}. Required with --player-${index}.`,
+      (value: string) => {
+        const seat = collected.get(index) ?? {};
+        seat.characterRace = value;
+        collected.set(index, seat);
+        return value;
+      },
+    );
+    command.option(
+      `--player-${index}-character-class <class>`,
+      `Character class for player ${index}. Required with --player-${index}.`,
+      (value: string) => {
+        const seat = collected.get(index) ?? {};
+        seat.characterClass = value;
         collected.set(index, seat);
         return value;
       },
@@ -237,7 +289,7 @@ export function interpretSessionCommand(
       type: "error",
       message: [
         "Provide one or more audio files.",
-        "Example: rpg-chronicler session session.mp3 --dm Alex --player-1 Sam --preset transcript",
+        "Example: rpg-chronicler session session.mp3 --dm Alex --player-1 Jim --player-1-character-name Miflin --player-1-character-race Human --player-1-character-class Fighter --preset transcript",
       ].join("\n"),
     };
   }
@@ -260,7 +312,8 @@ export function interpretSessionCommand(
   if (indexes.length === 0) {
     return {
       type: "error",
-      message: "Provide at least one player. Example: --player-1 Sam --player-1-alias Elara",
+      message:
+        "Provide at least one player. Example: --player-1 Jim --player-1-character-name Miflin --player-1-character-race Human --player-1-character-class Fighter",
     };
   }
   for (const index of indexes) {
@@ -281,22 +334,52 @@ export function interpretSessionCommand(
   for (const index of indexes) {
     const seat = collected.get(index) ?? {};
     if (!seat.name?.trim()) {
+      const extras = playerDetailFlags(index, seat);
+      if (extras.length > 0) {
+        const verb = extras.length === 1 ? "was" : "were";
+        return { type: "error", message: `${extras.join(", ")} ${verb} set without --player-${index}.` };
+      }
       return {
         type: "error",
-        message: seat.alias
-          ? `--player-${index}-alias was set without --player-${index}.`
-          : `Provide --player-${index} with that player's first name or table name.`,
+        message: `Provide --player-${index} with that player's first name or table name.`,
       };
     }
     const nameError = tableNameError(seat.name, `--player-${index}`);
     if (nameError) {
       return { type: "error", message: nameError };
     }
+    const missingCharacter = missingCharacterFlags(index, seat);
+    if (missingCharacter.length > 0) {
+      return {
+        type: "error",
+        message: `${seat.name.trim()} (--player-${index}) is missing ${missingCharacter.join(", ")}. Character name, race, and class are required for every player.`,
+      };
+    }
+    const characterName = parseDetail(seat.characterName, `--player-${index}-character-name`);
+    if ("error" in characterName) {
+      return { type: "error", message: characterName.error };
+    }
+    const characterRace = parseDetail(seat.characterRace, `--player-${index}-character-race`);
+    if ("error" in characterRace) {
+      return { type: "error", message: characterRace.error };
+    }
+    const characterClass = parseDetail(seat.characterClass, `--player-${index}-character-class`);
+    if ("error" in characterClass) {
+      return { type: "error", message: characterClass.error };
+    }
     const aliases = parseAliasList(seat.alias, `--player-${index}-alias`);
     if ("error" in aliases) {
       return { type: "error", message: aliases.error };
     }
-    players.push({ name: seat.name.trim(), aliases: aliases.aliases });
+    players.push({
+      name: seat.name.trim(),
+      aliases: aliases.aliases,
+      character: {
+        name: characterName.value,
+        race: characterRace.value,
+        className: characterClass.value,
+      },
+    });
   }
 
   const cast = {
@@ -306,6 +389,13 @@ export function interpretSessionCommand(
   const collision = castCollisionError(cast);
   if (collision) {
     return { type: "error", message: collision };
+  }
+  if (options.names !== undefined && options.names.trim().length === 0) {
+    return { type: "error", message: "--names is empty. Pass comma-separated proper nouns, or omit the flag." };
+  }
+  const names = parseAliasList(options.names, "--names");
+  if ("error" in names) {
+    return { type: "error", message: names.error };
   }
 
   const instructions = options.instructions?.trim() || undefined;
@@ -377,6 +467,7 @@ export function interpretSessionCommand(
     chunkMinutes,
     baseUrl,
     envFile: options.envFile?.trim() || DEFAULT_ENV_FILE,
+    names: names.aliases,
   });
   if (!request.success) {
     return { type: "error", message: request.error.issues.map((issue) => issue.message).join("\n") };
@@ -406,7 +497,7 @@ function sessionArgv(argv: string[]): string[] {
 function playerOptionIndexes(argv: string[]): number[] {
   const indexes = new Set<number>([1]);
   for (const arg of argv) {
-    const flag = /^--player-(\d+)(?:-alias)?$/u.exec(arg.split("=")[0]);
+    const flag = PLAYER_FLAG_PATTERN.exec(arg.split("=")[0]);
     if (!flag) {
       continue;
     }
@@ -422,7 +513,7 @@ function duplicatePlayerFlagError(argv: string[]): string | undefined {
   const counts = new Map<string, number>();
   for (const arg of argv) {
     const name = arg.split("=")[0];
-    if (!/^--player-\d+(?:-alias)?$/u.test(name)) {
+    if (!PLAYER_FLAG_PATTERN.test(name)) {
       continue;
     }
     counts.set(name, (counts.get(name) ?? 0) + 1);
@@ -433,6 +524,37 @@ function duplicatePlayerFlagError(argv: string[]): string | undefined {
     }
   }
   return undefined;
+}
+
+function playerDetailFlags(index: number, seat: SeatInput): string[] {
+  const flags: string[] = [];
+  if (seat.alias !== undefined) {
+    flags.push(`--player-${index}-alias`);
+  }
+  if (seat.characterName !== undefined) {
+    flags.push(`--player-${index}-character-name`);
+  }
+  if (seat.characterRace !== undefined) {
+    flags.push(`--player-${index}-character-race`);
+  }
+  if (seat.characterClass !== undefined) {
+    flags.push(`--player-${index}-character-class`);
+  }
+  return flags;
+}
+
+function missingCharacterFlags(index: number, seat: SeatInput): string[] {
+  const missing: string[] = [];
+  if (!seat.characterName?.trim()) {
+    missing.push(`--player-${index}-character-name`);
+  }
+  if (!seat.characterRace?.trim()) {
+    missing.push(`--player-${index}-character-race`);
+  }
+  if (!seat.characterClass?.trim()) {
+    missing.push(`--player-${index}-character-class`);
+  }
+  return missing;
 }
 
 function playerNameHelp(index: number): string {

@@ -41,6 +41,7 @@ export async function buildDryRunReport(input: DryRunReportInput): Promise<{ ok:
   const preset = input.request.presetId ? getSessionPreset(input.request.presetId) : undefined;
   const speakerMessages = await sessionSpeakerPrompt({
     cast: input.request.cast,
+    names: input.request.names,
     chunkLabel: "a dry-run placeholder clip",
     previousTail: undefined,
     presetId: input.request.presetId,
@@ -54,6 +55,7 @@ export async function buildDryRunReport(input: DryRunReportInput): Promise<{ ok:
       ? await sessionPrompt({
           mode: "produce",
           cast: input.request.cast,
+          names: input.request.names,
           presetId: input.request.presetId,
           instructions: input.request.instructions,
           transcript: placeholder,
@@ -74,6 +76,7 @@ export async function buildDryRunReport(input: DryRunReportInput): Promise<{ ok:
       .split("\n")
       .map((line) => `  ${line}`)
       .join("\n"),
+    `  Names: ${input.request.names.length > 0 ? input.request.names.join(", ") : "(none)"}`,
     "",
     "Task",
     `  Preset: ${preset ? `${preset.id} — ${preset.summary}` : "(none)"}`,

@@ -11,6 +11,7 @@ import {
   scrubSecret,
   SessionCliError,
   taskWritesNamedTranscriptDirectly,
+  withLowConfidenceSection,
 } from "../shared/util.session.js";
 import { assertFfmpegAvailable } from "./util.session-audio.js";
 import { collectAudioFacts } from "./util.session-files.js";
@@ -82,6 +83,7 @@ export async function runSessionCli(request: SessionRunConfig): Promise<void> {
         chunk,
         chunkCount: chunks.length,
         cast: request.cast,
+        names: request.names,
         presetId: request.presetId,
         instructions: request.instructions,
         previousTranscript,
@@ -96,12 +98,14 @@ export async function runSessionCli(request: SessionRunConfig): Promise<void> {
     }
   }
 
-  const namedTranscript = sections.join("\n\n").trim();
-  if (!namedTranscript) {
+  const joinedTranscript = sections.join("\n\n").trim();
+  if (!joinedTranscript) {
     throw new SessionCliError("The audio step did not produce a transcript.");
   }
+  const namedTranscript = withLowConfidenceSection(joinedTranscript);
 
   const direct = taskWritesNamedTranscriptDirectly(request.presetId, request.instructions);
+  const attributesSpeakers = request.presetId ? getSessionPreset(request.presetId).attributesSpeakers : false;
   let body = namedTranscript;
   if (!direct) {
     log(`Writing the ${request.presetId ?? "custom"} result with ${request.textModel}.`);
@@ -111,12 +115,13 @@ export async function runSessionCli(request: SessionRunConfig): Promise<void> {
       model: request.textModel,
       reasoningEffort: request.reasoningEffort,
       cast: request.cast,
+      names: request.names,
       presetId: request.presetId,
       instructions: request.instructions,
-      transcript: namedTranscript,
+      transcript: joinedTranscript,
       log,
     });
-    body = written.text;
+    body = attributesSpeakers ? withLowConfidenceSection(written.text) : written.text;
     inputTokens += written.inputTokens;
     outputTokens += written.outputTokens;
   }
@@ -126,6 +131,7 @@ export async function runSessionCli(request: SessionRunConfig): Promise<void> {
     title,
     sourcePaths: request.audioPaths,
     cast: request.cast,
+    names: request.names,
     presetId: request.presetId,
     instructions: request.instructions,
     audioModel: request.audioModel,

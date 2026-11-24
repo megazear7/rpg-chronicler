@@ -1,5 +1,22 @@
 import { SessionPresetId } from "./type.session.js";
 
+export const LOW_CONFIDENCE_MARKER = "[low confidence]";
+export const LOW_CONFIDENCE_HEADING = "## Low confidence";
+
+export function speakerConfidenceInstructions(): string {
+  return [
+    "Speaker confidence:",
+    "When you are not confident that the attributed speaker actually said a line, do not guess silently.",
+    `Keep your best attribution and mark that same line with the exact tag ${LOW_CONFIDENCE_MARKER}.`,
+    "Leave the timestamp on the line.",
+    `End with a section titled "${LOW_CONFIDENCE_HEADING}" that lists every low-confidence line again, including its timestamp.`,
+    `If no line is uncertain, write "${LOW_CONFIDENCE_HEADING}" and then "None."`,
+  ].join("\n");
+}
+
+const IN_CHARACTER_LINE =
+  'When a player speaks in character, write the player and the character together as "Player (Character):", for example "Jim (Miflin):". Use the character name, race, and class from the cast. Do not attribute that line to the character alone.';
+
 export interface SessionPresetDefinition {
   id: SessionPresetId;
   title: string;
@@ -8,6 +25,8 @@ export interface SessionPresetDefinition {
   combineInstructions: string;
   /** "audio" means gpt-realtime follows these instructions while it listens. "text" is written afterward. */
   delivery: "audio" | "text";
+  /** True when the finished text attributes spoken lines to people at the table. */
+  attributesSpeakers: boolean;
 }
 
 const combineDefault =
@@ -19,15 +38,18 @@ export const sessionPresets = {
     title: "Transcript",
     summary: "A readable transcript that names the DM and each player, including character and NPC voices.",
     delivery: "text",
+    attributesSpeakers: true,
     instructions: `Produce a readable transcript of this tabletop RPG session with speaker attribution.
 Keep the words that were said. Lightly add punctuation so it can be read.
 Attribute every turn to the person who said it, using the cast names.
-When a player is speaking as their character, write "Name (as Character):".
+${IN_CHARACTER_LINE}
 When the DM is narrating or speaking as an NPC, write "Name (DM):" or "Name (DM, as NPC):".
 Keep table talk, rules calls, and jokes.
 Use the timestamps already in the source at the start of each turn.
-If a stretch is unintelligible, write [unintelligible] instead of guessing.
-Do not add a title, preamble, or closing note.`,
+If a stretch is unintelligible, write [unintelligible] instead of guessing the words.
+Do not add a title or a preamble.
+
+${speakerConfidenceInstructions()}`,
     combineInstructions:
       "Join the partial transcripts in order. Do not rewrite spoken words. You may remove a repeated sentence at a boundary if both drafts include it.",
   },
@@ -37,6 +59,7 @@ Do not add a title, preamble, or closing note.`,
     summary:
       "A chronological account of what the people at the table did, in player names rather than character names.",
     delivery: "text",
+    attributesSpeakers: false,
     instructions: `Write a chronological play-by-play of what the people at the table did.
 Refer to real player and DM names, not character names, except when a character name is needed to explain what that person did in the game.
 Use short sentences and simple language a game master can scan later.
@@ -51,6 +74,7 @@ Do not add a preamble.`,
     title: "Session summary",
     summary: "A few paragraphs for a campaign log: how the session started, the turning points, and how it ended.",
     delivery: "text",
+    attributesSpeakers: false,
     instructions: `Write a session summary a campaign log can keep.
 Use a few short paragraphs. Open with how the session started, then the turning points, then how it ended.
 Use player names for what the people did and character names for what happened in the world.
@@ -64,6 +88,7 @@ Do not add a preamble or a title.`,
     title: "DM notes",
     summary: "Notes the DM needs next session: NPCs, loot, promises, open hooks, and where the party stopped.",
     delivery: "text",
+    attributesSpeakers: false,
     instructions: `Write notes the DM can use to prepare the next session.
 Cover NPCs who appeared, changed, or died; loot, debts, and promises; facts the party learned; hooks that are still open; and anything the DM still needs to track.
 Describe the party's location and situation at the end in enough detail to pick the scene back up.
@@ -77,6 +102,7 @@ Do not add a preamble.`,
     title: "Story",
     summary: "Narrative prose of what happened in the game world, using character names and no table talk.",
     delivery: "text",
+    attributesSpeakers: false,
     instructions: `Write a narrative story of what happened in the game world.
 Use character names, not the players' real names. Treat the DM's narration and NPC dialogue as the world, and treat player dialogue as the words and choices of their characters.
 Write prose paragraphs. Do not mention dice, rules, table talk, or that this was a game.
@@ -91,6 +117,7 @@ Do not add a title or a preamble.`,
     summary:
       "A Knights of the Dinner Table style comic script about this group at the table, not a straight retelling of the plot.",
     delivery: "text",
+    attributesSpeakers: false,
     instructions: `Write a comic script in the spirit of Knights of the Dinner Table: a gag comic about this group at the table, not a straight adaptation of the fantasy plot.
 The characters are the DM and players, drawn as ordinary people with dice, minis, snacks, and rulebooks. Use their real names.
 In-world events belong in caption boxes and in the DM's narration. The humor comes from how the group reacts: rules arguments, bad rolls, spotlight stealing, and running jokes.
@@ -113,16 +140,20 @@ Do not add a preamble before PAGE 1.`,
     summary:
       "A listening-time chronicle of who said what, rolls and rulings, names, story beats, and funny table moments.",
     delivery: "audio",
+    attributesSpeakers: true,
     instructions: `Listen to this clip and write a chronicle of the tabletop session as you hear it.
-Use the DM and player names, and their aliases, to attribute every line to the right person.
+Use the DM and player names, their aliases, and the character each player is running to attribute every line to the right person.
+${IN_CHARACTER_LINE}
 Mark in-character speech separately from table talk.
 Mark DM narration separately from NPC voices the DM performs.
 Note dice rolls, rules calls, and the outcomes of those calls.
-Capture NPCs, places, items, and loot by the names used in the session.
+Capture NPCs, places, items, and loot by the names used in the session. Spell the proper nouns from the cast notes exactly as written.
 Flag key story beats, decisions, jokes, and memorable funny moments at the table, because those moments are useful for a Knights of the Dinner Table style comic.
 Keep the chronicle in chronological order, and start each entry with a rough timestamp from the start of this clip.
 When the audio is unclear, say plainly that it is unclear instead of guessing.
-Do not add a title or a preamble.`,
+Do not add a title or a preamble.
+
+${speakerConfidenceInstructions()}`,
     combineInstructions:
       "Chronicle clips are already written by the audio model. Keep them in order and do not add events.",
   },

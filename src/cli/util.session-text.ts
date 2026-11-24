@@ -17,6 +17,7 @@ export interface TextTaskRequest {
   model: string;
   reasoningEffort: TextReasoningEffort;
   cast: SessionCast;
+  names: string[];
   presetId?: SessionPresetId;
   instructions?: string;
   transcript: string;
@@ -44,6 +45,7 @@ export async function runTextTask(request: TextTaskRequest): Promise<TextTaskRes
     const messages = await sessionPrompt({
       mode: "produce",
       cast: request.cast,
+      names: request.names,
       presetId: request.presetId,
       instructions: request.instructions,
       transcript: parts[0],
@@ -60,6 +62,7 @@ export async function runTextTask(request: TextTaskRequest): Promise<TextTaskRes
     const messages = await sessionPrompt({
       mode: "produce",
       cast: request.cast,
+      names: request.names,
       presetId: request.presetId,
       instructions: request.instructions,
       transcript: parts[index],
@@ -75,6 +78,7 @@ export async function runTextTask(request: TextTaskRequest): Promise<TextTaskRes
   const combined = await sessionPrompt({
     mode: "combine",
     cast: request.cast,
+    names: request.names,
     presetId: request.presetId,
     instructions: request.instructions,
     partials,

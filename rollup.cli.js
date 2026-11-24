@@ -9,6 +9,12 @@ export default {
     file: 'dist/cli/index.cjs',
     format: 'cjs'
   },
+  external: (id) =>
+    id === 'ws' ||
+    id === 'dotenv' ||
+    id.startsWith('dotenv/') ||
+    id === 'openai' ||
+    id.startsWith('openai/'),
   onwarn(warning) {
     if (warning.code !== 'THIS_IS_UNDEFINED') {
       console.error(`(!) ${warning.message}`);
